@@ -67,9 +67,9 @@ QuickMapLink already restricts Bing Maps to browser-only opening (its GPU-heavy 
 
 ## Installation
 
-No public repository yet — install manually:
+Not yet on the official QGIS plugin repository — install manually:
 
-1.  Copy the `quick_map_compare` folder into your QGIS plugins directory:
+1.  Download this repository (clone it, or download the ZIP and unzip it) and copy the `quick_map_compare` folder into your QGIS plugins directory:
     *   Windows: `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\`
     *   macOS: `~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/`
     *   Linux: `~/.local/share/QGIS/QGIS3/profiles/default/python/plugins/`
@@ -77,11 +77,46 @@ No public repository yet — install manually:
 
 ## Usage
 
-1.  Click the **Add Viewport** icon in the toolbar (or `Plugins` menu). The first click creates the QuickMapCompare dock panel.
-2.  Choose a source for the new tile: a layer from the current project, a built-in basemap tile layer, or one of the map providers.
-3.  Toggle the **sync icon** (top-left of a tile) to have it live-follow the main QGIS canvas; toggle it off to freeze that tile's view.
-4.  Use the **change-source icon** to swap what a tile shows, the **gear icon** (when shown) to change its basemap/overlay style, or the **✕** icon to remove it.
-5.  Drag the divider between any two tiles to resize them.
+### 1. Add your first viewport
+
+Click the **Add Viewport** icon (toolbar or `Plugins` → `QuickMapCompare` → `Add Viewport`). The first click also creates the QuickMapCompare dock panel, docked at the bottom of the QGIS window by default (drag its title bar to move or float it, like any QGIS panel).
+
+A dialog asks what the tile should show — pick one of the three source kinds:
+
+*   **QGIS layer** — any layer already in your current project.
+*   **Basemap tile layer** — a built-in XYZ basemap (OpenStreetMap, CyclOSM, Esri hillshade/topo, USGS Topo, Stamen Terrain). No API key needed except Stamen Terrain (see [Basemap tile layers](#basemap-tile-layers)).
+*   **Map provider** — an embedded web map (Google Maps, OpenTopoMap, OpenSeaMap, weather radar, etc). Only shown if your QGIS build has `QtWebEngine`/`QtWebKit`.
+
+The new tile appears already synced to whatever the main QGIS canvas is currently showing.
+
+### 2. Add more tiles to build a comparison grid
+
+Repeat **Add Viewport** for each thing you want to compare side by side. Tiles arrange themselves automatically into a roughly square grid (1→1×1, 2→1×2, 4→2×2, 5→2×3, ...), reflowing every time you add or remove one. Drag the divider between any two tiles to resize them — sizes reset the next time the tile count changes.
+
+### 3. The overlay bar on each tile
+
+Hover any tile to see its floating control bar (it overlaps the content rather than taking up its own row). From left to right:
+
+| Icon | Does what |
+| --- | --- |
+| **Sync** (toggle) | On: this tile live-follows the main canvas as you pan/zoom. Off: it freezes wherever it was. Layer/basemap tiles update instantly; provider tiles update ~400ms after you stop moving, since each update reloads a web page. |
+| **Change source** | Reopens the same source picker as Add Viewport, so you can swap this tile to a different layer, basemap, or provider without losing its place in the grid. |
+| **Settings** (gear, only shown when relevant) | Provider tiles with more than one basemap/overlay choice (Google Maps, Google Maps (JS), OpenRailwayMap, Windy) get a small dialog to change that style. |
+| **Add to Swipe Compare** (only shown for layer/basemap tiles) | Arms this tile for the on-canvas swipe gesture — see [Swipe Compare](#swipe-compare) below. |
+| **✕** | Removes the tile; the grid reflows to fill the gap. |
+
+### 4. Compare against the main canvas directly (Swipe Compare)
+
+For a layer or basemap tile, click its **Add to Swipe Compare** icon (cycles off → horizontal → vertical → off), click on the main QGIS canvas so it has focus, then **press and hold S** and move the mouse — the main canvas is replaced by that tile's content on one side of the cursor, letting you drag a divider back and forth to compare. Release S to return to normal. Full details, including why provider tiles aren't offered here, in [Swipe Compare](#swipe-compare).
+
+### A worked example
+
+Comparing your own data against a basemap:
+
+1.  **Add Viewport** → *QGIS layer* → pick your project layer (e.g. a parcels layer).
+2.  **Add Viewport** again → *Basemap tile layer* → *OpenStreetMap*. You now have a 1×2 grid, both tiles synced to the main canvas.
+3.  Pan/zoom the main QGIS canvas — both tiles follow instantly.
+4.  Click **Add to Swipe Compare** on the OpenStreetMap tile, click the main canvas, then hold **S** and move the mouse to reveal your parcels layer directly over the live canvas without needing the side-by-side tile at all.
 
 ## Requirements
 
