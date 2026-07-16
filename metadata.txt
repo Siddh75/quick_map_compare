@@ -1,0 +1,50 @@
+[general]
+name=QuickMapCompare
+qgisMinimumVersion=3.16
+description=Build a grid of side-by-side viewports in a dockable panel to compare QGIS layers, built-in tile basemaps, and web map providers at once, with per-viewport live sync to the main map canvas.
+version=0.7.0
+author=Siddharth
+email=siddharthgupta7may@gmail.com
+category=Web
+about=QuickMapCompare lets you build a grid of "viewports" in a single dockable panel, side by side. Each viewport shows a QGIS project layer (rendered natively), a built-in tile basemap (OpenStreetMap, CyclOSM, Esri World Hillshade, Esri World Topographic, USGS Topo, or Stamen Terrain -- all rendered natively, no webview), or one of several web map providers (Google Maps, Google Maps JS, OpenTopoMap, Wikimedia Maps, OpenSeaMap, OpenRailwayMap, OpenSnowMap, Waymarked Trails Hiking, RainViewer, Windy), embedded via a webview. Every viewport has its own floating overlay bar (Sync / Change source / Style settings / Close) and its own Sync toggle: enable it to have that viewport live-follow the main QGIS map canvas as you pan and zoom, or disable it to keep the viewport static. Layer and basemap-tile viewports sync instantly (same rendering engine as QGIS itself); provider viewports sync with a short debounce since each update reloads a web page. Every viewport also shows a mouse-cursor crosshair, and tiles can be resized by dragging the dividers between them. Layer and basemap-tile viewports also have a "Swipe Compare" icon: clicking it cycles off -> horizontal -> vertical -> off; with one armed, hold S and move the mouse over the main canvas to swipe between the live canvas and that viewport, directly on the canvas itself -- no separate window. Bing Maps and Apple Maps are not offered as viewport sources, since running several embedded web views at once meaningfully increases the GPU-driver crash risk those two providers already carry in a single embedded view.
+icon=icon.png
+tags=maps,compare,side by side,swipe,google maps,google maps js,opentopomap,wikimedia maps,esri,hillshade,usgs,stamen,terrain,openstreetmap,cyclosm,openseamap,openrailwaymap,opensnowmap,waymarked trails,rainviewer,windy,weather,web,layers,dock,grid,viewport,sync
+experimental=True
+deprecated=False
+changelog=0.7.0
+        - Added a vertical Swipe Compare mode: clicking a viewport's "Add to Swipe Compare" icon now cycles off -> horizontal (left/right, the original behavior) -> vertical (top/bottom, a new draggable horizontal divider) -> off, instead of a plain on/off toggle.
+        - Fixed Swipe Compare showing the *previously* armed viewport the first time S is pressed after switching to a different one: QgsMapCanvas renders asynchronously in a background job, so grabbing immediately after refresh() could catch it before the new layer had actually finished rendering. Now waits for rendering to complete before grabbing.
+    0.6.2
+        - Fixed Swipe Compare always showing the picked viewport zoomed in: on a HiDPI/Retina screen, QWidget.grab() returns a pixmap whose raw pixel size is scaled by the display's device pixel ratio, but the swipe overlay was slicing it with a source rect sized in logical pixels -- sampling only a shrunk corner of the image, which looked like a zoomed-in crop. It now lets Qt draw the pixmap at its natural size (DPI-aware) and clips to the divider position instead of cropping the source.
+    0.6.1
+        - Fixed two Swipe Compare bugs: the divider didn't track mouse movement while S was held, and the two sides weren't pixel-aligned. Root cause of both: QgsMapCanvas is a QGraphicsView, whose actual mouse-event surface is its internal viewport() child, not the canvas widget itself -- the swipe overlay and its mirror rendering now use the viewport's own size/coordinate space (where key events still target the canvas, since that's where keyboard focus actually lives).
+    0.6.0
+        - Reworked Swipe Compare from a separate dialog into an on-canvas gesture: each layer/basemap viewport tile now has an "Add to Swipe Compare" icon in its overlay bar. Arm one, then hold S and move the mouse over the main QGIS canvas to swipe between the live canvas and that viewport, composited directly onto the canvas itself. Web map provider viewports don't offer the icon -- there's no reliable way to composite an external web page's rendering onto the live canvas at interactive speed, so rather than offer something flaky they're excluded.
+    0.5.3
+        - Fixed the viewport (right) side of Swipe Compare still rendering blank the second time the dialog opens: reusing the previous mirror widget across a hide/show cycle could leave it stuck showing stale/blank content (the WebView mirror in particular suspends its Chromium renderer while its window is hidden). Both mirror widgets are now rebuilt fresh every time the dialog is opened rather than reused.
+    0.5.2
+        - Fixed Swipe Compare rendering blank the second time it's opened: closing it via its window-close button doesn't destroy the dialog (the plugin caches and reuses the same instance), but its cleanup code was tearing down the mirror canvases as if it did. That cleanup now only runs once, when the plugin itself unloads.
+    0.5.1
+        - Fixed Swipe Compare misalignment: it previously grabbed snapshots of the already-existing main canvas and viewport tile (each a different size/aspect ratio) and independently stretched both to fit the dialog, which threw features out of alignment between the two sides. It now renders both sides from dedicated off-screen QgsMapCanvas/WebView "mirrors" resized to exactly match the swipe widget and driven from the same requested extent, so both sides are pixel-aligned with no extra scaling at composite time.
+    0.5.0
+        - Added "Swipe Compare...": a separate dialog (Plugins menu or toolbar) that composites the main QGIS canvas against any currently open viewport (layer, basemap, or web map provider), split by a divider you click-and-drag directly on the image.
+    0.4.2
+        - Refactored: moved all map-source logic (provider/basemap definitions, URL builders, the XYZ tile basemap layer builder, API key storage, and coordinate/zoom helpers) out of quick_map_compare.py into a new sources.py module. No behavior change.
+    0.4.1
+        - Moved CyclOSM from a webview provider to a native XYZ basemap tile layer: cyclosm.org's own demo site pops up a recurring "About" modal on every load, which reappeared on every sync since that's a page reload. CyclOSM's public tile service (tile-cyclosm.openstreetmap.fr) sidesteps that entirely.
+        - Added OpenStreetMap back as a native XYZ basemap tile layer (tile.openstreetmap.org) rather than the previously-removed webview provider, for the same reason -- no page/site chrome to pop up.
+    0.4.0
+        - Added a "Basemap tile layer" viewport source: built-in XYZ terrain basemaps (Esri World Hillshade, Esri World Topographic, USGS Topo, Stamen Terrain) rendered natively via QgsMapCanvas, same pixel-perfect sync as QGIS-layer viewports, no webview/GPU crash risk. Stamen Terrain needs a Stadia Maps API key, set via Plugins > QuickMapCompare > Set Stadia Maps API Key.
+        - Added specialized OSM-family map providers: OpenSeaMap, OpenRailwayMap (with Standard/Max Speed/Signals/Electrification styles), OpenSnowMap, CyclOSM, and Waymarked Trails (Hiking).
+        - Added weather map providers: RainViewer and Windy (with Wind/Rain/Temperature/Clouds/Pressure overlay choices) -- both work with no API key.
+    0.3.1
+        - Removed OpenStreetMap as a viewport provider.
+    0.3.0
+        - Added a "Google Maps (JS)" provider that drives the Google Maps JavaScript API directly with all UI chrome disabled, instead of embedding the ordinary maps.google.com page -- avoids the search bar, sign-in prompt, and "Heavy traffic" popups the URL-embedded Google Maps provider shows, which can't be suppressed since that one is just a normal page load. Requires a Google Maps JavaScript API key, set via Plugins > QuickMapCompare > Set Google Maps API Key.
+    0.2.0
+        - Floating, semi-transparent overlay topbar per tile (Sync / Change source / Style settings at top-left, Close at top-right) instead of a fixed header row.
+        - Mouse-cursor crosshair in every viewport, pixel-perfect for layer tiles and web-mercator-based for provider tiles.
+        - Resizable viewports: tiles now live in nested QSplitters instead of a fixed grid, so dividers can be dragged.
+        - Per-tile style settings moved into a small dialog opened from a settings (gear) icon, shown only for providers with more than one basemap/overlay choice.
+    0.1.0
+        - Initial release: dockable comparison panel, grid of viewports (QGIS layers or web map providers), per-viewport Sync toggle, per-provider-tile basemap/overlay style pickers, adaptive grid reflow as tiles are added/removed.
