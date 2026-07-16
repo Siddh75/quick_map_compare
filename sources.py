@@ -12,7 +12,6 @@ adding or tweaking a map source doesn't require touching the UI code, and vice v
 
 import math
 
-from qgis.PyQt.QtCore import QSettings
 from qgis.core import (
     QgsProject, QgsCoordinateTransform, QgsCoordinateReferenceSystem, QgsRasterLayer,
 )
@@ -24,11 +23,10 @@ from qgis.core import (
 # have several embedded web views open at the same time (one per provider tile),
 # which only multiplies that risk, so both are excluded outright here rather than
 # offered with a warning.
-GOOGLE_JS_PROVIDER = "Google Maps (JS)"
 WAYMARKED_HIKING_PROVIDER = "Waymarked Trails (Hiking)"
 
 PROVIDERS = [
-    "Google Maps", GOOGLE_JS_PROVIDER, "OpenTopoMap", "Wikimedia Maps",
+    "Google Maps", "OpenTopoMap", "Wikimedia Maps",
     # Specialized OSM-family layers -- each has its own public demo site using the
     # same hash- or query-based "go to this lat/lon/zoom" convention OpenTopoMap
     # and Wikimedia Maps already use above, so they slot into the same URL-embed
@@ -45,7 +43,6 @@ PROVIDERS = [
 
 PROVIDER_BASEMAPS = {
     "Google Maps": ["Roadmap", "Satellite", "Terrain"],
-    GOOGLE_JS_PROVIDER: ["Roadmap", "Satellite", "Terrain"],
     "OpenTopoMap": ["Topographic"],
     "Wikimedia Maps": ["Standard"],
     "OpenSeaMap": ["Standard"],
@@ -57,7 +54,6 @@ PROVIDER_BASEMAPS = {
 }
 PROVIDER_OVERLAYS = {
     "Google Maps": ["None", "Traffic", "Transit", "Bicycling"],
-    GOOGLE_JS_PROVIDER: ["None", "Traffic", "Transit", "Bicycling"],
     "OpenTopoMap": ["None"],
     "Wikimedia Maps": ["None"],
     "OpenSeaMap": ["None"],
@@ -87,15 +83,6 @@ TILE_BASEMAPS = {
         "url": "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
         "zmax": 16,
     },
-    # Stamen's tiles moved to Stadia Maps hosting; non-localhost use (which QGIS
-    # always is) needs either domain auth or an API key -- see get_stadia_api_key /
-    # the "Set Stadia Maps API Key..." Plugins-menu action. Without a key this will
-    # likely fail to load, hence "(where still available)" in the original request.
-    "Stamen Terrain": {
-        "url": "https://tiles.stadiamaps.com/tiles/stamen_terrain/{z}/{x}/{y}.png",
-        "zmax": 18,
-        "needs_stadia_key": True,
-    },
     # Not Terrain/Relief sources, but rendered the same way for the same reason:
     # both OpenStreetMap.org and CyclOSM's own demo sites pop up their own modals/
     # UI chrome on every page load, which reappears on every sync since that's a
@@ -112,31 +99,6 @@ TILE_BASEMAPS = {
     },
 }
 
-# Settings keys for user-supplied API keys (see QuickMapComparePlugin.set_google_api_key
-# / set_stadia_api_key). Same QSettings organization QuickMapLink uses, distinct
-# application name so the two plugins' settings don't collide.
-SETTINGS_ORG = "MyOrganization"
-SETTINGS_APP = "QuickMapCompare Settings"
-GOOGLE_JS_API_KEY_SETTING = "google_js_api_key"
-STADIA_API_KEY_SETTING = "stadia_maps_api_key"
-
-
-def get_google_js_api_key():
-    return QSettings(SETTINGS_ORG, SETTINGS_APP).value(GOOGLE_JS_API_KEY_SETTING, "", type=str)
-
-
-def set_google_js_api_key(key):
-    QSettings(SETTINGS_ORG, SETTINGS_APP).setValue(GOOGLE_JS_API_KEY_SETTING, key)
-
-
-def get_stadia_api_key():
-    return QSettings(SETTINGS_ORG, SETTINGS_APP).value(STADIA_API_KEY_SETTING, "", type=str)
-
-
-def set_stadia_api_key(key):
-    QSettings(SETTINGS_ORG, SETTINGS_APP).setValue(STADIA_API_KEY_SETTING, key)
-
-
 def _make_xyz_raster_layer(name):
     """Build a QgsRasterLayer for one of the built-in TILE_BASEMAPS entries. QGIS's
     "wms" provider handles plain XYZ tile URLs via a "type=xyz&url=..." data source
@@ -146,14 +108,8 @@ def _make_xyz_raster_layer(name):
     if config is None:
         return None
 
-    url = config["url"]
-    if config.get("needs_stadia_key"):
-        key = get_stadia_api_key()
-        if key:
-            url = f"{url}?api_key={key}"
-
     zmax = config.get("zmax", 19)
-    uri = f"type=xyz&url={url}&zmax={zmax}&zmin=0"
+    uri = f"type=xyz&url={config['url']}&zmax={zmax}&zmin=0"
     return QgsRasterLayer(uri, name, "wms")
 
 
@@ -321,65 +277,3 @@ def _build_windy_url(latitude, longitude, zoom, overlay):
             f"&detailLat={latitude}&detailLon={longitude}&overlay={overlay_param}"
             f"&level=surface&type=map&location=coordinates&metricWind=default&metricTemp=default")
 
-
-# "Google Maps" (above) embeds the ordinary maps.google.com web page via the URL
-# scheme -- simple and needs no API key, but it's still Google's own web UI: search
-# bar, sign-in prompt, "Heavy traffic in this area" popups, etc, which can't be
-# suppressed since it's just a normal page load. "Google Maps (JS)" instead drives
-# the Google Maps JavaScript API directly with disableDefaultUI and every individual
-# control switched off, so the tile shows nothing but the map. Requires a Google
-# Maps JavaScript API key (see get_google_js_api_key / the "Set Google Maps API
-# Key..." Plugins-menu action) -- unlike the URL-scheme provider, this one calls a
-# billed Google API.
-_GOOGLE_JS_MAP_TYPES = {"Roadmap": "roadmap", "Satellite": "satellite", "Terrain": "terrain"}
-_GOOGLE_JS_OVERLAY_LAYERS = {
-    "Traffic": "TrafficLayer",
-    "Transit": "TransitLayer",
-    "Bicycling": "BicyclingLayer",
-}
-
-
-def _build_google_js_html(latitude, longitude, zoom, basemap, overlay, api_key):
-    if not api_key:
-        return (
-            "<html><body style=\"margin:0;height:100%;display:flex;align-items:center;"
-            "justify-content:center;text-align:center;padding:12px;"
-            "font-family:sans-serif;color:#888;\">"
-            "No Google Maps JavaScript API key set.<br>"
-            "Plugins &gt; QuickMapCompare &gt; Set Google Maps API Key&hellip;"
-            "</body></html>")
-
-    map_type_id = _GOOGLE_JS_MAP_TYPES.get(basemap, "roadmap")
-    overlay_layer_class = _GOOGLE_JS_OVERLAY_LAYERS.get(overlay)
-    overlay_js = f"new google.maps.{overlay_layer_class}().setMap(map);" if overlay_layer_class else ""
-    zoom = round(max(0, min(21, zoom)))
-
-    return f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>html, body, #map {{ height: 100%; margin: 0; padding: 0; }}</style>
-</head>
-<body>
-<div id="map"></div>
-<script>
-function initMap() {{
-  const map = new google.maps.Map(document.getElementById("map"), {{
-    center: {{ lat: {latitude}, lng: {longitude} }},
-    zoom: {zoom},
-    mapTypeId: "{map_type_id}",
-    disableDefaultUI: true,
-    zoomControl: false,
-    streetViewControl: false,
-    mapTypeControl: false,
-    fullscreenControl: false,
-    rotateControl: false,
-    scaleControl: false,
-    keyboardShortcuts: false
-  }});
-  {overlay_js}
-}}
-</script>
-<script src="https://maps.googleapis.com/maps/api/js?key={api_key}&callback=initMap" async defer></script>
-</body>
-</html>"""

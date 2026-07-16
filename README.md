@@ -13,11 +13,11 @@ This is a standalone plugin, independent from [QuickMapLink](https://github.com/
 *   **Resizable viewports:** tiles sit in nested splitters (a vertical splitter of horizontal rows), so you can drag the dividers between tiles to resize them, the same way you'd resize QGIS's own panels.
 *   **Three kinds of viewport:**
     *   **QGIS layer:** rendered natively via QGIS's own `QgsMapCanvas` — the same embeddable widget QGIS's own "Panels > New Map View" uses.
-    *   **Basemap tile layer:** built-in XYZ tile basemaps rendered natively via `QgsMapCanvas`, not a webview — OpenStreetMap, CyclOSM, Esri World Hillshade, Esri World Topographic, USGS Topo, Stamen Terrain. No GPU/webview crash risk, no site chrome/popups, and sync is just as pixel-perfect as a QGIS layer.
-    *   **Web map provider:** Google Maps, Google Maps (JS), OpenTopoMap, Wikimedia Maps, OpenSeaMap, OpenRailwayMap, OpenSnowMap, Waymarked Trails (Hiking), RainViewer, or Windy, embedded via a webview.
+    *   **Basemap tile layer:** built-in XYZ tile basemaps rendered natively via `QgsMapCanvas`, not a webview — OpenStreetMap, CyclOSM, Esri World Hillshade, Esri World Topographic, USGS Topo. No GPU/webview crash risk, no site chrome/popups, no API key, and sync is just as pixel-perfect as a QGIS layer.
+    *   **Web map provider:** Google Maps, OpenTopoMap, Wikimedia Maps, OpenSeaMap, OpenRailwayMap, OpenSnowMap, Waymarked Trails (Hiking), RainViewer, or Windy, embedded via a webview.
 *   **Floating overlay controls:** each tile has a semi-transparent bar over the top of its content (it doesn't take up separate space) — Sync, Change source, and (when relevant) Style settings icons at the top-left, Close at the top-right. Hover the bar to see what the tile is currently showing.
 *   **Per-viewport Sync toggle:** when enabled, that viewport live-follows the main QGIS map canvas as you pan and zoom. When disabled, it stays static. Layer and basemap-tile viewports sync instantly (same rendering engine, pixel-perfect `setExtent()`); provider viewports sync with a short debounce (~400ms) since each update reloads a web page.
-*   **Per-tile style settings:** provider viewports that actually have more than one basemap or overlay choice (Google Maps, Google Maps (JS), OpenRailwayMap, Windy) show a settings (gear) icon opening a small dialog with those options; providers with only one style (OpenTopoMap, Wikimedia Maps, OpenSeaMap, OpenSnowMap, Waymarked Trails, RainViewer) don't show a settings icon.
+*   **Per-tile style settings:** provider viewports that actually have more than one basemap or overlay choice (Google Maps, OpenRailwayMap, Windy) show a settings (gear) icon opening a small dialog with those options; providers with only one style (OpenTopoMap, Wikimedia Maps, OpenSeaMap, OpenSnowMap, Waymarked Trails, RainViewer) don't show a settings icon.
 *   **Mouse-cursor crosshair:** every viewport shows a small crosshair tracking where the QGIS canvas mouse cursor currently falls — pixel-perfect for layer and basemap-tile viewports (same rendering engine), computed via web-mercator math against each tile's last-set center/zoom for provider viewports (same technique QuickMapLink uses for its webview).
 *   **Change source / remove:** each tile can swap what it's showing, or be removed entirely — the grid reflows to fill the gap.
 *   **Swipe Compare:** layer and basemap-tile viewports have an "Add to Swipe Compare" icon in their overlay bar, cycling off → horizontal → vertical → off on each click. With one armed, hold **S** and move the mouse over the main QGIS canvas to swipe between the live canvas and that viewport — composited directly onto the canvas itself, no separate window.
@@ -35,23 +35,9 @@ Web map provider viewports (Google Maps, OpenTopoMap, and the rest) don't offer 
 
 Under the hood, an event filter installed on `iface.mapCanvas()` handles the key press/release and mouse move, and a transparent child widget parented directly onto the canvas's viewport paints the armed viewport's content over the appropriate side of the divider — ordinary parent/child Qt compositing, so the untouched portion simply shows the real canvas through it with no special translucency setup needed. The armed viewport's content itself comes from a same-size, same-extent `QgsMapCanvas` "mirror" rendered once when S is first pressed (moving the mouse afterward just repositions the divider, no re-render needed) — the mirror waits for its render job to actually finish before grabbing a snapshot of it, since QGIS renders asynchronously and grabbing too early can catch a stale or blank frame, most noticeably right after switching which viewport is armed.
 
-## Google Maps vs Google Maps (JS)
-
-**Google Maps** embeds the ordinary `maps.google.com` web page via a URL — no API key needed, but it's still Google's own web UI: search bar, sign-in prompt, "Heavy traffic in this area" popups, etc, none of which can be suppressed since it's just a normal page load.
-
-**Google Maps (JS)** instead drives the [Google Maps JavaScript API](https://developers.google.com/maps/documentation/javascript) directly with `disableDefaultUI` and every individual control switched off, so the tile shows nothing but the map. This requires your own Google Maps JavaScript API key:
-
-1.  Get a key from the [Google Cloud Console](https://console.cloud.google.com/google/maps-apis) (enable the "Maps JavaScript API").
-2.  In QGIS: `Plugins` → `QuickMapCompare` → `Set Google Maps API Key…`, paste it in.
-3.  Add a viewport with source "Google Maps (JS)" (or use the settings gear icon on an existing tile to switch its basemap/overlay style).
-
-Note: because the key is used from an embedded QGIS webview rather than a real website, an **HTTP-referrer-restricted** key won't work here — use an unrestricted key (fine for personal/local use) or an **IP-restricted** key instead. The key is stored locally via `QSettings`, not committed anywhere.
-
 ## Basemap tile layers
 
 OpenStreetMap, CyclOSM, Esri World Hillshade, Esri World Topographic, and USGS Topo are all free, public XYZ tile services that need no key — pick "Basemap tile layer" when adding a viewport. OpenStreetMap and CyclOSM are here (rather than as webview providers) specifically because their own demo websites pop up their own UI/modals on every page load, which would reappear on every sync since a sync is a page reload for a webview provider; the native tile layer sidesteps that entirely.
-
-**Stamen Terrain** is the exception: Stamen's tiles are now hosted by Stadia Maps, and non-localhost use (which QGIS always is) needs either domain authentication or an API key. Get a free key from [Stadia Maps](https://stadiamaps.com/) and set it via `Plugins` → `QuickMapCompare` → `Set Stadia Maps API Key…`. Without a key, the tile will most likely fail to load — it's included because it was explicitly requested, but expect to need that key.
 
 ## Specialized and weather map providers
 
@@ -84,7 +70,7 @@ Click the **Add Viewport** icon (toolbar or `Plugins` → `QuickMapCompare` → 
 A dialog asks what the tile should show — pick one of the three source kinds:
 
 *   **QGIS layer** — any layer already in your current project.
-*   **Basemap tile layer** — a built-in XYZ basemap (OpenStreetMap, CyclOSM, Esri hillshade/topo, USGS Topo, Stamen Terrain). No API key needed except Stamen Terrain (see [Basemap tile layers](#basemap-tile-layers)).
+*   **Basemap tile layer** — a built-in XYZ basemap (OpenStreetMap, CyclOSM, Esri hillshade/topo, USGS Topo). No API key needed (see [Basemap tile layers](#basemap-tile-layers)).
 *   **Map provider** — an embedded web map (Google Maps, OpenTopoMap, OpenSeaMap, weather radar, etc). Only shown if your QGIS build has `QtWebEngine`/`QtWebKit`.
 
 The new tile appears already synced to whatever the main QGIS canvas is currently showing.
@@ -101,7 +87,7 @@ Hover any tile to see its floating control bar (it overlaps the content rather t
 | --- | --- |
 | **Sync** (toggle) | On: this tile live-follows the main canvas as you pan/zoom. Off: it freezes wherever it was. Layer/basemap tiles update instantly; provider tiles update ~400ms after you stop moving, since each update reloads a web page. |
 | **Change source** | Reopens the same source picker as Add Viewport, so you can swap this tile to a different layer, basemap, or provider without losing its place in the grid. |
-| **Settings** (gear, only shown when relevant) | Provider tiles with more than one basemap/overlay choice (Google Maps, Google Maps (JS), OpenRailwayMap, Windy) get a small dialog to change that style. |
+| **Settings** (gear, only shown when relevant) | Provider tiles with more than one basemap/overlay choice (Google Maps, OpenRailwayMap, Windy) get a small dialog to change that style. |
 | **Add to Swipe Compare** (only shown for layer/basemap tiles) | Arms this tile for the on-canvas swipe gesture — see [Swipe Compare](#swipe-compare) below. |
 | **✕** | Removes the tile; the grid reflows to fill the gap. |
 
@@ -122,8 +108,6 @@ Comparing your own data against a basemap:
 
 *   QGIS 3.16+.
 *   `QtWebEngine` (preferred) or `QtWebKit` for provider viewports. If neither is available in your QGIS build, provider tiles are disabled gracefully — layer and basemap-tile viewports still work.
-*   A Google Maps JavaScript API key, only if you use the "Google Maps (JS)" provider (see above).
-*   A Stadia Maps API key, only if you use the "Stamen Terrain" basemap tile layer (see above).
 
 ## Notes on Qt5/Qt6 compatibility
 

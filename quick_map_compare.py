@@ -13,7 +13,7 @@ except ImportError:
 from qgis.PyQt.QtWidgets import (
     QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QPushButton, QToolButton, QRadioButton, QButtonGroup, QDockWidget, QFrame,
-    QSizePolicy, QMessageBox, QSplitter, QInputDialog, QLineEdit,
+    QSizePolicy, QMessageBox, QSplitter,
 )
 from qgis.PyQt.QtCore import Qt, QUrl, QTimer, QSize, QPoint
 from qgis.PyQt.QtGui import QIcon, QPainter, QColor, QPen
@@ -21,11 +21,10 @@ from qgis.gui import QgsMapCanvas, QgisInterface
 from qgis.core import QgsProject
 
 from .sources import (
-    GOOGLE_JS_PROVIDER, PROVIDERS, PROVIDER_BASEMAPS, PROVIDER_OVERLAYS, TILE_BASEMAPS,
-    get_google_js_api_key, set_google_js_api_key, get_stadia_api_key, set_stadia_api_key,
+    PROVIDERS, PROVIDER_BASEMAPS, PROVIDER_OVERLAYS, TILE_BASEMAPS,
     _make_xyz_raster_layer, _provider_has_style_options,
     get_wgs84_point, get_canvas_center_wgs84, estimate_zoom_level, _mercator_pixel,
-    build_provider_url, _build_google_js_html,
+    build_provider_url,
 )
 from .swipe import SwipeCanvasController
 
@@ -403,22 +402,6 @@ class ViewportTileWidget(QFrame):
         self.body_container.addWidget(canvas)
         self._cursor_overlay = _CursorOverlay(canvas)
 
-    def refresh_basemap_layer(self):
-        """Rebuild the XYZ raster layer in place -- used when the Stadia Maps API
-        key changes, so an already-open Stamen Terrain tile picks it up without
-        needing to be removed and re-added."""
-        kind, name = self.source
-        if kind != "basemap" or self.canvas is None:
-            return
-        try:
-            layer = _make_xyz_raster_layer(name)
-            self._basemap_layer = layer
-            if layer is not None and layer.isValid():
-                self.canvas.setLayers([layer])
-                self.canvas.refresh()
-        except RuntimeError:
-            pass
-
     def _build_provider_body(self, provider):
         self.settings_button.setVisible(_provider_has_style_options(provider))
         self.swipe_button.setVisible(False)
@@ -544,17 +527,9 @@ class ViewportTileWidget(QFrame):
             tile_width = self.webview.width() or 400
             zoom = estimate_zoom_level(main_canvas, tile_width)
 
-            if provider == GOOGLE_JS_PROVIDER:
-                # setHtml (not setUrl): this provider has no plain URL to load --
-                # it's an inline page that pulls in the Maps JS API script itself.
-                html = _build_google_js_html(
-                    latitude, longitude, zoom, self.basemap_style, self.overlay_style,
-                    get_google_js_api_key())
-                self.webview.setHtml(html, QUrl("https://maps.googleapis.com/"))
-            else:
-                url = build_provider_url(
-                    provider, self.basemap_style, self.overlay_style, latitude, longitude, zoom)
-                self.webview.setUrl(QUrl(url))
+            url = build_provider_url(
+                provider, self.basemap_style, self.overlay_style, latitude, longitude, zoom)
+            self.webview.setUrl(QUrl(url))
 
             self._map_center = (latitude, longitude)
             self._map_zoom = round(max(0, min(21, zoom)))
@@ -790,22 +765,10 @@ class QuickMapComparePlugin:
         self.add_viewport_action.setToolTip("Add a viewport to the QuickMapCompare panel")
         self.add_viewport_action.triggered.connect(self.add_viewport)
 
-        self.set_api_key_action = QAction("Set Google Maps API Key…", self.iface.mainWindow())
-        self.set_api_key_action.setToolTip(
-            "Set the Google Maps JavaScript API key used by \"Google Maps (JS)\" viewports")
-        self.set_api_key_action.triggered.connect(self.set_google_api_key)
-
-        self.set_stadia_key_action = QAction("Set Stadia Maps API Key…", self.iface.mainWindow())
-        self.set_stadia_key_action.setToolTip(
-            "Set the Stadia Maps API key used by the \"Stamen Terrain\" basemap tile layer")
-        self.set_stadia_key_action.triggered.connect(self.set_stadia_api_key)
-
     def initGui(self):
         # Directly into the Plugins menu (one clickable item), same pattern as
         # QuickMapLink, rather than wrapping it in its own submenu.
         self.iface.pluginMenu().addAction(self.add_viewport_action)
-        self.iface.pluginMenu().addAction(self.set_api_key_action)
-        self.iface.pluginMenu().addAction(self.set_stadia_key_action)
 
         self.toolbar = self.iface.addToolBar("QuickMapCompare")
         self.toolbar.setObjectName("QuickMapCompareToolbar")
@@ -819,8 +782,6 @@ class QuickMapComparePlugin:
 
     def unload(self):
         self.iface.pluginMenu().removeAction(self.add_viewport_action)
-        self.iface.pluginMenu().removeAction(self.set_api_key_action)
-        self.iface.pluginMenu().removeAction(self.set_stadia_key_action)
 
         self.swipe_controller.detach()
 
@@ -871,47 +832,6 @@ class QuickMapComparePlugin:
         self.dock.show()
         self.dock.raise_()
         self.dock.add_tile(source)
-
-    def set_google_api_key(self):
-        current_key = get_google_js_api_key()
-        key, ok = QInputDialog.getText(
-            self.iface.mainWindow(), "Google Maps JavaScript API Key",
-            "Enter your Google Maps JavaScript API key.\n"
-            "Used only by \"Google Maps (JS)\" viewport tiles -- other providers\n"
-            "don't need one. Note: since this key is used from an embedded QGIS\n"
-            "webview rather than a real website, an HTTP-referrer-restricted key\n"
-            "won't work here; use an unrestricted or IP-restricted key instead.",
-            QLineEdit.EchoMode.Normal, current_key)
-        if not ok:
-            return
-
-        set_google_js_api_key(key.strip())
-
-        if self.dock is not None:
-            for tile in self.dock.tiles:
-                if tile.source == ("provider", GOOGLE_JS_PROVIDER):
-                    tile.refresh_provider_url()
-
-    def set_stadia_api_key(self):
-        current_key = get_stadia_api_key()
-        key, ok = QInputDialog.getText(
-            self.iface.mainWindow(), "Stadia Maps API Key",
-            "Enter your Stadia Maps API key.\n"
-            "Used only by the \"Stamen Terrain\" basemap tile layer -- Esri World\n"
-            "Hillshade, Esri World Topographic, and USGS Topo don't need one.\n"
-            "Stadia's free tier requires either domain authentication or an API\n"
-            "key for non-localhost use, which QGIS always is, so Stamen Terrain\n"
-            "likely won't load without a key set here.",
-            QLineEdit.EchoMode.Normal, current_key)
-        if not ok:
-            return
-
-        set_stadia_api_key(key.strip())
-
-        if self.dock is not None:
-            for tile in self.dock.tiles:
-                if tile.source == ("basemap", "Stamen Terrain"):
-                    tile.refresh_basemap_layer()
 
     def _on_canvas_extents_changed(self):
         if self.dock is not None:
