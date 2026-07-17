@@ -2,7 +2,7 @@
 name=QuickMapCompare
 qgisMinimumVersion=3.16
 description=Build a grid of side-by-side viewports in a dockable panel to compare QGIS layers, built-in tile basemaps, and web map providers at once, with per-viewport live sync to the main map canvas.
-version=0.8.0
+version=0.8.1
 author=Siddharth
 email=siddharthgupta7may@gmail.com
 category=Web
@@ -14,7 +14,11 @@ icon=icon.png
 tags=maps,compare,side by side,swipe,google maps,wikimedia maps,openrailwaymap,opensnowmap,esri,hillshade,usgs,openstreetmap,cyclosm,cartodb,bing maps,wms,xyz,tiles,web,layers,dock,grid,viewport,sync
 experimental=True
 deprecated=False
-changelog=0.8.0
+changelog=0.8.1
+        - Fixed the native "Google Maps" WMS/XYZ tile not rendering: its tile URL contains literal "&" characters, which were corrupting the outer XYZ connection string QGIS uses internally, truncating the URL and losing the {x}/{y}/{z} tokens. The "&" is now percent-encoded before use.
+        - Fixed Swipe Compare getting stuck "on" indefinitely (until S was pressed again) if S was pressed and released again quickly while the armed layer/basemap was still loading: the render used to wait for could take long enough for the key-release to be processed (and silently dropped) before swipe had actually started. The physical key state is now tracked independently and checked before arming.
+        - Added a small "Loading…" indicator over a tile while its content is being fetched -- for layer/WMS-XYZ tiles this follows QGIS's own render job, and for Web Map Provider tiles it follows the embedded page load.
+    0.8.0
         - Removed the Windy, RainViewer, Waymarked Trails (Hiking), OpenSeaMap, and OpenTopoMap web map providers -- none of them could be verified working reliably.
         - Renamed the "Map provider" source kind to "Web Map Providers" and "Basemap tile layer" to "WMS/XYZ tiles" throughout the UI.
         - Added a native "Google Maps" WMS/XYZ tile (Roadmap/Satellite/Terrain/Hybrid, switchable via the settings-gear icon) -- no API key, no webview chrome, independent of the existing webview "Google Maps" provider.

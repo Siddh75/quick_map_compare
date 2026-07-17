@@ -15,8 +15,8 @@ from qgis.PyQt.QtWidgets import (
     QPushButton, QToolButton, QRadioButton, QButtonGroup, QDockWidget, QFrame,
     QSizePolicy, QMessageBox, QSplitter,
 )
-from qgis.PyQt.QtCore import Qt, QUrl, QTimer, QSize, QPoint
-from qgis.PyQt.QtGui import QIcon, QPainter, QColor, QPen
+from qgis.PyQt.QtCore import Qt, QUrl, QTimer, QSize, QPoint, QRect
+from qgis.PyQt.QtGui import QIcon, QPainter, QColor, QPen, QFontMetrics
 from qgis.gui import QgsMapCanvas, QgisInterface
 from qgis.core import QgsProject
 
@@ -75,6 +75,42 @@ class _CursorOverlay(QWidget):
         painter.drawLine(center + radius + 1, center, center + 8, center)
         painter.drawLine(center, center - 8, center, center - radius - 1)
         painter.drawLine(center, center + radius + 1, center, center + 8)
+
+
+# ----------------------------------------------------------------------------
+# Loading indicator -- a small centered badge shown over a tile while its body
+# is fetching data: driven by QgsMapCanvas's renderStarting()/mapCanvasRefreshed()
+# signals for layer/basemap tiles (a slow remote WMS/WFS source, or a big local
+# raster, can leave the tile blank/stale for a noticeable moment otherwise), and
+# by WebView's loadStarted()/loadFinished() signals for provider tiles. Parented
+# directly onto the tile itself (like the overlay bar) rather than the body
+# widget, so its geometry is kept in sync in the same resizeEvent.
+# ----------------------------------------------------------------------------
+
+class _LoadingOverlay(QWidget):
+    _TEXT = "Loading…"
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        self.hide()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        metrics = QFontMetrics(painter.font())
+        text_w = metrics.horizontalAdvance(self._TEXT) if hasattr(metrics, "horizontalAdvance") else metrics.width(self._TEXT)
+        pad_x, pad_y = 10, 6
+        box_w, box_h = text_w + pad_x * 2, metrics.height() + pad_y * 2
+        box = QRect((self.width() - box_w) // 2, (self.height() - box_h) // 2, box_w, box_h)
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(20, 20, 20, 175))
+        painter.drawRoundedRect(box, 6, 6)
+        painter.setPen(QColor(255, 255, 255, 235))
+        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, self._TEXT)
 
 
 # ----------------------------------------------------------------------------
@@ -282,6 +318,7 @@ class ViewportTileWidget(QFrame):
         self.body_container.setSpacing(0)
 
         self._build_overlay_bar()
+        self._loading_overlay = _LoadingOverlay(self)
 
         self.canvas = None
         self.webview = None
@@ -353,6 +390,7 @@ class ViewportTileWidget(QFrame):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.overlay_bar.setGeometry(0, 0, self.width(), self.OVERLAY_HEIGHT)
+        self._loading_overlay.setGeometry(0, 0, self.width(), self.height())
         if self.source[0] == "provider" and self.webview is not None:
             # Debounced: a splitter drag fires many resize events in a row, and each
             # provider update reloads a web page, so only refresh once it settles.
@@ -372,6 +410,7 @@ class ViewportTileWidget(QFrame):
         self._map_center = None
         self._map_zoom = None
         self._basemap_layer = None
+        self._loading_overlay.hide()
 
     def _build_body(self):
         self._clear_body()
@@ -382,6 +421,7 @@ class ViewportTileWidget(QFrame):
             self._build_basemap_body(value)
         else:
             self._build_provider_body(value)
+        self._loading_overlay.raise_()
         self.overlay_bar.raise_()
 
     def _build_layer_body(self, layer_id):
@@ -398,6 +438,8 @@ class ViewportTileWidget(QFrame):
         # directly via setExtent() is instant/pixel-perfect -- no lat/lon/zoom
         # conversion needed, unlike the web-provider case.
         canvas.setDestinationCrs(main_canvas.mapSettings().destinationCrs())
+        canvas.renderStarting.connect(self._on_body_loading_started)
+        canvas.mapCanvasRefreshed.connect(self._on_body_loading_finished)
         if layer is not None:
             canvas.setLayers([layer])
         canvas.setExtent(main_canvas.extent())
@@ -425,6 +467,8 @@ class ViewportTileWidget(QFrame):
         canvas = QgsMapCanvas()
         canvas.setCanvasColor(main_canvas.canvasColor())
         canvas.setDestinationCrs(main_canvas.mapSettings().destinationCrs())
+        canvas.renderStarting.connect(self._on_body_loading_started)
+        canvas.mapCanvasRefreshed.connect(self._on_body_loading_finished)
 
         layer = _make_xyz_raster_layer(basemap_name, self.basemap_style)
         self._basemap_layer = layer  # keep a live Python reference alongside the canvas
@@ -482,6 +526,7 @@ class ViewportTileWidget(QFrame):
 
         webview = WebView()
         try:
+            webview.loadStarted.connect(self._on_body_loading_started)
             webview.loadFinished.connect(self._on_webview_load_finished)
         except AttributeError:
             pass
@@ -492,6 +537,8 @@ class ViewportTileWidget(QFrame):
         self.refresh_provider_url()
 
     def _on_webview_load_finished(self, ok):
+        self._on_body_loading_finished()
+
         # Leaflet-based providers (e.g. Wikimedia Maps) can mis-measure their
         # container on first paint even when the tile is already visible; nudging
         # a resize event after load makes them recompute and fill in tiles.
@@ -505,6 +552,13 @@ class ViewportTileWidget(QFrame):
                 self.webview.page().mainFrame().evaluateJavaScript(js)
         except RuntimeError:
             pass
+
+    def _on_body_loading_started(self):
+        self._loading_overlay.show()
+        self._loading_overlay.raise_()
+
+    def _on_body_loading_finished(self):
+        self._loading_overlay.hide()
 
     # -- sync ----------------------------------------------------------------
 

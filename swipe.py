@@ -158,6 +158,8 @@ class SwipeCanvasController(QObject):
         self._overlay = None
         self._mirror_canvas = None
         self._swiping = False
+        self._key_down = False  # physical S key state -- see _start_swipe for why this
+                                 # is tracked separately from self._swiping
         self._attached = False
 
     # -- setup / teardown -------------------------------------------------
@@ -209,6 +211,7 @@ class SwipeCanvasController(QObject):
         self._active_tile = None
         self._active_mode = None
         self._swiping = False
+        self._key_down = False
         self._attached = False
 
     # -- active viewport ----------------------------------------------------
@@ -268,6 +271,7 @@ class SwipeCanvasController(QObject):
             # object keyboard focus -- key events target it, not the viewport, unlike
             # mouse events (handled above).
             if event_type == QEvent.Type.KeyPress and not event.isAutoRepeat() and event.key() == SWIPE_KEY:
+                self._key_down = True
                 if self._active_tile is None:
                     return False
                 if not self._swiping:
@@ -275,6 +279,7 @@ class SwipeCanvasController(QObject):
                 return True
 
             if event_type == QEvent.Type.KeyRelease and not event.isAutoRepeat() and event.key() == SWIPE_KEY:
+                self._key_down = False
                 if self._swiping:
                     self._end_swipe()
                     return True
@@ -293,6 +298,17 @@ class SwipeCanvasController(QObject):
         viewport = canvas.viewport()
         pixmap = self._render_mirror(tile, canvas, viewport)
         if pixmap is None:
+            return
+        if not self._key_down:
+            # _render_mirror() -> waitWhileRendering() blocks until the mirror's
+            # render job finishes, pumping the Qt event loop while it waits -- if
+            # the picked layer/basemap is still loading (e.g. a slow WMS/WFS
+            # source), that can take long enough for the user to release S before
+            # we get here. That KeyRelease was already delivered to eventFilter
+            # above and processed *during* this wait, while self._swiping was
+            # still False, so it had nothing to end and was silently dropped.
+            # Bail out here instead of arming a swipe with no release left to end
+            # it (which otherwise looked "stuck on" until S was pressed again).
             return
 
         self._swiping = True
