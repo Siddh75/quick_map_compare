@@ -2,19 +2,21 @@
 name=QuickMapCompare
 qgisMinimumVersion=3.16
 description=Build a grid of side-by-side viewports in a dockable panel to compare QGIS layers, built-in tile basemaps, and web map providers at once, with per-viewport live sync to the main map canvas.
-version=0.8.2
+version=1.0.0
 author=Siddharth
 email=siddharthgupta7may@gmail.com
 category=Web
 homepage=https://github.com/Siddh75/quick_map_compare
 tracker=https://github.com/Siddh75/quick_map_compare/issues
 repository=https://github.com/Siddh75/quick_map_compare
-about=QuickMapCompare lets you build a grid of "viewports" in a single dockable panel, side by side. Each viewport shows a QGIS project layer (rendered natively), a WMS/XYZ tile basemap (OpenStreetMap, CyclOSM, Esri World Hillshade, Esri World Topographic, USGS Topo, Esri Ocean, Esri NatGeo, Esri Light Gray, CartoDB Light/Dark/Voyager, Google Maps Roadmap/Satellite/Terrain/Hybrid, or Bing Maps Aerial -- all rendered natively, no webview), or one of several Web Map Providers (Google Maps, Wikimedia Maps, OpenRailwayMap, OpenSnowMap), embedded via a webview. Every viewport has its own floating overlay bar (Sync / Change source / Style settings / Close) and its own Sync toggle: enable it to have that viewport live-follow the main QGIS map canvas as you pan and zoom, or disable it to keep the viewport static. Layer and WMS/XYZ-tile viewports sync instantly (same rendering engine as QGIS itself); provider viewports sync with a short debounce since each update reloads a web page. Every viewport also shows a mouse-cursor crosshair, and tiles can be resized by dragging the dividers between them. Layer and WMS/XYZ-tile viewports also have a "Swipe Compare" icon: clicking it cycles off -> horizontal -> vertical -> off; with one armed, hold S and move the mouse over the main canvas to swipe between the live canvas and that viewport, directly on the canvas itself -- no separate window. Apple Maps is not offered as a viewport source (no simple public tile/view endpoint); Bing Maps is excluded from the webview Web Map Providers list specifically (GPU-driver crash risk when embedded), but is available as a native "Bing Maps (Aerial)" WMS/XYZ tile instead.
+about=QuickMapCompare builds a grid of side-by-side "viewports" in a dockable panel, each showing a QGIS layer, a native WMS/XYZ tile basemap (OpenStreetMap, Esri, CartoDB, Google Maps, Bing Maps, and more), or an embedded Web Map Provider. Every viewport can live-sync to the main QGIS canvas as you pan and zoom, and layer/tile viewports support an on-canvas "Swipe Compare" gesture (hold S and drag) to compare directly against the live canvas with no separate window.
 icon=icon.png
 tags=maps,compare,side by side,swipe,google maps,wikimedia maps,openrailwaymap,opensnowmap,esri,hillshade,usgs,openstreetmap,cyclosm,cartodb,bing maps,wms,xyz,tiles,web,layers,dock,grid,viewport,sync
 experimental=True
 deprecated=False
-changelog=0.8.2
+changelog=1.0.0
+        - First stable release. Shortened the plugin description; no functional changes since 0.8.2.
+    0.8.2
         - "Add Viewport" no longer forces the source picker when the panel already has viewports but was just closed (via its own titlebar close button, which only hides it) -- clicking the toolbar/menu action now simply reopens it as it was. The source picker still opens as before the very first time (no panel/viewports yet) or whenever the panel is already open.
     0.8.1
         - Fixed the native "Google Maps" WMS/XYZ tile not rendering: its tile URL contains literal "&" characters, which were corrupting the outer XYZ connection string QGIS uses internally, truncating the URL and losing the {x}/{y}/{z} tokens. The "&" is now percent-encoded before use.
