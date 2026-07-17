@@ -924,6 +924,19 @@ class QuickMapComparePlugin:
     # -- actions -------------------------------------------------------------
 
     def add_viewport(self):
+        # Closing the dock via its own titlebar close button just hides it (the
+        # default QDockWidget behavior) -- self.dock and its tiles list live on
+        # unchanged. If that's the situation (existing viewports, panel just not
+        # currently shown), clicking "Add Viewport" should simply reopen the panel
+        # as it was rather than force another source picker on top of it; the
+        # picker still opens as usual either the first time (no dock/tiles yet)
+        # or whenever the panel is already open (so "Add Viewport" keeps adding
+        # tiles to it, same as before).
+        if self.dock is not None and self.dock.tiles and not self.dock.isVisible():
+            self.dock.show()
+            self.dock.raise_()
+            return
+
         dialog = SourcePickerDialog(self.iface.mainWindow())
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
