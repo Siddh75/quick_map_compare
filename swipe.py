@@ -320,7 +320,11 @@ class SwipeCanvasController(QObject):
                 layer = QgsProject.instance().mapLayer(value)
                 layers = [layer] if layer is not None else []
             else:  # "basemap"
-                layer = _make_xyz_raster_layer(value)
+                # Match whatever style the tile itself is currently showing (e.g.
+                # "Satellite" rather than silently falling back to the basemap's
+                # first/default style) so the swipe mirror looks the same as the
+                # tile it's swapping in for.
+                layer = _make_xyz_raster_layer(value, tile.basemap_style)
                 layers = [layer] if layer is not None and layer.isValid() else []
 
             # Sized to the *viewport*, not main_canvas itself -- see module docstring.

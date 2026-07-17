@@ -23,6 +23,7 @@ from qgis.core import QgsProject
 from .sources import (
     PROVIDERS, PROVIDER_BASEMAPS, PROVIDER_OVERLAYS, TILE_BASEMAPS,
     _make_xyz_raster_layer, _provider_has_style_options,
+    _basemap_styles, _basemap_has_style_options,
     get_wgs84_point, get_canvas_center_wgs84, estimate_zoom_level, _mercator_pixel,
     build_provider_url,
 )
@@ -81,7 +82,7 @@ class _CursorOverlay(QWidget):
 # ----------------------------------------------------------------------------
 
 class SourcePickerDialog(QDialog):
-    """Radio choice: QGIS Layer vs Basemap tile layer vs Map Provider, with the
+    """Radio choice: QGIS Layer vs WMS/XYZ tiles vs Web Map Providers, with the
     relevant combo box below each. Used both for adding a new tile and for
     "Change source" on an existing one (pass current_source to preselect)."""
 
@@ -91,8 +92,8 @@ class SourcePickerDialog(QDialog):
         layout = QVBoxLayout(self)
 
         self.layer_radio = QRadioButton("QGIS layer")
-        self.basemap_radio = QRadioButton("Basemap tile layer")
-        self.provider_radio = QRadioButton("Map provider")
+        self.basemap_radio = QRadioButton("WMS/XYZ tiles")
+        self.provider_radio = QRadioButton("Web Map Providers")
         button_group = QButtonGroup(self)
         button_group.addButton(self.layer_radio)
         button_group.addButton(self.basemap_radio)
@@ -119,8 +120,8 @@ class SourcePickerDialog(QDialog):
         if not WEBVIEW_AVAILABLE:
             note = QLabel(
                 "Web map providers aren't available in this QGIS build (no "
-                "QtWebEngine/QtWebKit found) -- only QGIS layers and basemap tile "
-                "layers can be used.")
+                "QtWebEngine/QtWebKit found) -- only QGIS layers and WMS/XYZ "
+                "tiles can be used.")
             note.setWordWrap(True)
             layout.addWidget(note)
             self.provider_radio.setEnabled(False)
@@ -206,6 +207,36 @@ class ProviderStyleDialog(QDialog):
 
     def result_style(self):
         return self.basemap_combo.currentText(), self.overlay_combo.currentText()
+
+
+class BasemapStyleDialog(QDialog):
+    """Opened from a WMS/XYZ tile's settings icon when it has more than one style
+    (currently "Google Maps" and "CartoDB") -- a single style picker, simpler than
+    ProviderStyleDialog since basemap tiles have no separate overlay concept."""
+
+    def __init__(self, parent, basemap_name, current_style, styles):
+        super().__init__(parent)
+        self.setWindowTitle(f"{basemap_name} Style")
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel("Style:"))
+        self.style_combo = QComboBox()
+        self.style_combo.addItems(styles)
+        self.style_combo.setCurrentText(current_style if current_style in styles else styles[0])
+        layout.addWidget(self.style_combo)
+
+        button_row = QHBoxLayout()
+        ok_button = QPushButton("OK")
+        cancel_button = QPushButton("Cancel")
+        ok_button.clicked.connect(self.accept)
+        cancel_button.clicked.connect(self.reject)
+        button_row.addStretch()
+        button_row.addWidget(ok_button)
+        button_row.addWidget(cancel_button)
+        layout.addLayout(button_row)
+
+    def result_style(self):
+        return self.style_combo.currentText()
 
 
 # ----------------------------------------------------------------------------
@@ -378,19 +409,24 @@ class ViewportTileWidget(QFrame):
         self._cursor_overlay = _CursorOverlay(canvas)
 
     def _build_basemap_body(self, basemap_name):
-        # Built-in XYZ tile basemap (Terrain/Relief group) -- technically identical
-        # to a layer tile (same QgsMapCanvas, same setExtent() sync), just backed by
-        # a raster layer we construct on the fly instead of an existing project layer.
-        self.settings_button.setVisible(False)
+        # Built-in XYZ tile basemap -- technically identical to a layer tile (same
+        # QgsMapCanvas, same setExtent() sync), just backed by a raster layer we
+        # construct on the fly instead of an existing project layer. A basemap with
+        # more than one style (e.g. "Google Maps", "CartoDB") gets the settings-gear
+        # icon too, same as a provider tile with style choices.
+        self.settings_button.setVisible(_basemap_has_style_options(basemap_name))
         self.swipe_button.setVisible(True)
         self.overlay_bar.setToolTip(basemap_name)
+
+        styles = _basemap_styles(basemap_name)
+        self.basemap_style = styles[0] if styles else None
 
         main_canvas = self.iface.mapCanvas()
         canvas = QgsMapCanvas()
         canvas.setCanvasColor(main_canvas.canvasColor())
         canvas.setDestinationCrs(main_canvas.mapSettings().destinationCrs())
 
-        layer = _make_xyz_raster_layer(basemap_name)
+        layer = _make_xyz_raster_layer(basemap_name, self.basemap_style)
         self._basemap_layer = layer  # keep a live Python reference alongside the canvas
         if layer is not None and layer.isValid():
             canvas.setLayers([layer])
@@ -401,6 +437,23 @@ class ViewportTileWidget(QFrame):
         self._body_widget = canvas
         self.body_container.addWidget(canvas)
         self._cursor_overlay = _CursorOverlay(canvas)
+
+    def _rebuild_basemap_layer(self):
+        """Rebuild the XYZ raster layer in place with the currently-selected style --
+        used when the user picks a different style (e.g. Google Maps Roadmap ->
+        Satellite) from the settings dialog, without needing to remove and
+        re-add the tile."""
+        kind, name = self.source
+        if kind != "basemap" or self.canvas is None:
+            return
+        try:
+            layer = _make_xyz_raster_layer(name, self.basemap_style)
+            self._basemap_layer = layer
+            if layer is not None and layer.isValid():
+                self.canvas.setLayers([layer])
+                self.canvas.refresh()
+        except RuntimeError:
+            pass
 
     def _build_provider_body(self, provider):
         self.settings_button.setVisible(_provider_has_style_options(provider))
@@ -439,9 +492,9 @@ class ViewportTileWidget(QFrame):
         self.refresh_provider_url()
 
     def _on_webview_load_finished(self, ok):
-        # Leaflet-based providers (OpenTopoMap, Wikimedia Maps) can mis-measure
-        # their container on first paint even when the tile is already visible;
-        # nudging a resize event after load makes them recompute and fill in tiles.
+        # Leaflet-based providers (e.g. Wikimedia Maps) can mis-measure their
+        # container on first paint even when the tile is already visible; nudging
+        # a resize event after load makes them recompute and fill in tiles.
         if not ok or self.webview is None:
             return
         js = "window.dispatchEvent(new Event('resize'));"
@@ -539,13 +592,20 @@ class ViewportTileWidget(QFrame):
     # -- settings / change source / removal -----------------------------------
 
     def _open_style_settings(self):
-        kind, provider = self.source
-        if kind != "provider":
-            return
-        dialog = ProviderStyleDialog(self, provider, self.basemap_style, self.overlay_style)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.basemap_style, self.overlay_style = dialog.result_style()
-            self.refresh_provider_url()
+        kind, value = self.source
+        if kind == "provider":
+            dialog = ProviderStyleDialog(self, value, self.basemap_style, self.overlay_style)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.basemap_style, self.overlay_style = dialog.result_style()
+                self.refresh_provider_url()
+        elif kind == "basemap":
+            styles = _basemap_styles(value)
+            if len(styles) <= 1:
+                return
+            dialog = BasemapStyleDialog(self, value, self.basemap_style, styles)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.basemap_style = dialog.result_style()
+                self._rebuild_basemap_layer()
 
     def _change_source(self):
         dialog = SourcePickerDialog(self, current_source=self.source)
@@ -825,10 +885,9 @@ class QuickMapComparePlugin:
             self.iface.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.dock)
 
         # Show the dock BEFORE building/loading the new tile's webview: Leaflet-based
-        # providers (OpenTopoMap, Wikimedia Maps, and most of the specialized/weather
-        # ones) measure their container size at init, so a tile built while still
-        # hidden/zero-sized can load blank until the next resize nudge. Showing first
-        # avoids relying on that fallback.
+        # providers (e.g. Wikimedia Maps, OpenSnowMap) measure their container size
+        # at init, so a tile built while still hidden/zero-sized can load blank
+        # until the next resize nudge. Showing first avoids relying on that fallback.
         self.dock.show()
         self.dock.raise_()
         self.dock.add_tile(source)

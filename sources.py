@@ -1,6 +1,6 @@
 """Map-source logic for QuickMapCompare: provider/basemap definitions, provider URL
-building, the built-in XYZ tile basemap layer builder, user API key storage, and the
-coordinate/zoom helpers those depend on.
+building, the built-in XYZ tile basemap layer builder, and the coordinate/zoom
+helpers those depend on.
 
 Deliberately duplicated from QuickMapLink (URL-building, zoom estimation, coordinate
 transforms) rather than shared -- QuickMapCompare is an independent plugin, not a
@@ -16,71 +16,69 @@ from qgis.core import (
     QgsProject, QgsCoordinateTransform, QgsCoordinateReferenceSystem, QgsRasterLayer,
 )
 
-# Bing Maps and Apple Maps are intentionally left out of the viewport source list.
-# QuickMapLink already routes both to browser-only mode because Bing's GPU-heavy
-# renderer is known to hard-crash QGIS in an embedded QWebEngineView on some
-# systems/drivers, and Apple Maps is unreliable when embedded. QuickMapCompare can
-# have several embedded web views open at the same time (one per provider tile),
-# which only multiplies that risk, so both are excluded outright here rather than
-# offered with a warning.
-WAYMARKED_HIKING_PROVIDER = "Waymarked Trails (Hiking)"
+# Bing Maps and Apple Maps are intentionally left out of the *Web Map Providers*
+# (embedded webview) list. QuickMapLink already routes both to browser-only mode
+# because Bing's GPU-heavy renderer is known to hard-crash QGIS in an embedded
+# QWebEngineView on some systems/drivers, and Apple Maps is unreliable when
+# embedded. QuickMapCompare can have several embedded web views open at the same
+# time (one per provider tile), which only multiplies that risk, so both are
+# excluded outright here rather than offered with a warning. Bing's aerial tiles
+# are still available below as a native "WMS/XYZ tiles" basemap (see
+# TILE_BASEMAPS) -- that route renders via QgsMapCanvas, not a webview, so it
+# doesn't carry the same crash risk; Apple Maps has no equivalent public tile
+# endpoint to offer that way.
 
 PROVIDERS = [
-    "Google Maps", "OpenTopoMap", "Wikimedia Maps",
+    "Google Maps", "Wikimedia Maps",
     # Specialized OSM-family layers -- each has its own public demo site using the
-    # same hash- or query-based "go to this lat/lon/zoom" convention OpenTopoMap
-    # and Wikimedia Maps already use above, so they slot into the same URL-embed
-    # webview pattern with no API key needed. (CyclOSM isn't here -- see
-    # TILE_BASEMAPS below: its own demo site pops up a recurring "About" modal on
-    # every load, so it's rendered as a native tile basemap instead.)
-    "OpenSeaMap", "OpenRailwayMap", "OpenSnowMap", WAYMARKED_HIKING_PROVIDER,
-    # Weather -- RainViewer and Windy both have free, no-key embeddable web maps.
-    # (OpenWeatherMap and NOAA Weather were deliberately left out: OpenWeatherMap
-    # needs a paid/keyed tile endpoint and NOAA has no simple public tile/view
-    # endpoint to embed the same way.)
-    "RainViewer", "Windy",
+    # same hash- or query-based "go to this lat/lon/zoom" convention Wikimedia Maps
+    # already uses above, so they slot into the same URL-embed webview pattern
+    # with no API key needed.
+    "OpenRailwayMap", "OpenSnowMap",
 ]
 
 PROVIDER_BASEMAPS = {
     "Google Maps": ["Roadmap", "Satellite", "Terrain"],
-    "OpenTopoMap": ["Topographic"],
     "Wikimedia Maps": ["Standard"],
-    "OpenSeaMap": ["Standard"],
     "OpenRailwayMap": ["Standard", "Max Speed", "Signals", "Electrification"],
     "OpenSnowMap": ["Standard"],
-    WAYMARKED_HIKING_PROVIDER: ["Standard"],
-    "RainViewer": ["Standard"],
-    "Windy": ["Standard"],
 }
 PROVIDER_OVERLAYS = {
     "Google Maps": ["None", "Traffic", "Transit", "Bicycling"],
-    "OpenTopoMap": ["None"],
     "Wikimedia Maps": ["None"],
-    "OpenSeaMap": ["None"],
     "OpenRailwayMap": ["None"],
     "OpenSnowMap": ["None"],
-    WAYMARKED_HIKING_PROVIDER: ["None"],
-    "RainViewer": ["None"],
-    "Windy": ["Wind", "Rain", "Temperature", "Clouds", "Pressure"],
 }
 
-# Built-in raster tile basemaps (Terrain/Relief group) -- unlike the "provider"
-# entries above, these aren't websites to embed; they're plain XYZ tile services
-# with no view of their own. They're rendered natively via QgsMapCanvas exactly
-# like a QGIS-layer viewport (see ViewportTileWidget._build_basemap_body /
+# Built-in raster tile basemaps -- unlike the "provider" entries above, these
+# aren't websites to embed; they're plain XYZ tile services with no view of
+# their own. They're rendered natively via QgsMapCanvas exactly like a
+# QGIS-layer viewport (see ViewportTileWidget._build_basemap_body /
 # _make_xyz_raster_layer): pixel-perfect setExtent() sync, no webview/GPU crash
 # risk, and no per-provider zoom-estimation math needed at all.
+#
+# Each entry has a "styles" dict of {style name: tile URL template}. Entries
+# with only one style (most of them) don't show a settings-gear icon on their
+# tile; entries with more than one (currently "Google Maps" and "CartoDB") do,
+# opening a small dialog to switch between them without removing/re-adding the
+# tile (see ViewportTileWidget._rebuild_basemap_layer).
 TILE_BASEMAPS = {
     "Esri World Hillshade": {
-        "url": "https://services.arcgisonline.com/arcgis/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}",
+        "styles": {
+            "Standard": "https://services.arcgisonline.com/arcgis/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}",
+        },
         "zmax": 16,
     },
     "Esri World Topographic": {
-        "url": "https://services.arcgisonline.com/arcgis/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+        "styles": {
+            "Standard": "https://services.arcgisonline.com/arcgis/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+        },
         "zmax": 19,
     },
     "USGS Topo": {
-        "url": "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+        "styles": {
+            "Standard": "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+        },
         "zmax": 16,
     },
     # Not Terrain/Relief sources, but rendered the same way for the same reason:
@@ -90,33 +88,105 @@ TILE_BASEMAPS = {
     # reload entirely). OpenStreetMap was previously offered as a webview provider
     # and was removed at that point; it's back here as a native tile layer instead.
     "OpenStreetMap": {
-        "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "styles": {
+            "Standard": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+        },
         "zmax": 19,
     },
     "CyclOSM": {
-        "url": "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png",
+        "styles": {
+            "Standard": "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png",
+        },
         "zmax": 20,
+    },
+    # Native tile version of Google Maps -- no API key, no webview chrome/popups,
+    # pixel-perfect setExtent() sync like any other basemap here. Kept as a
+    # single entry with a style picker (via the settings-gear icon) rather than
+    # four separate basemap entries. This is independent of the "Google Maps"
+    # *Web Map Provider* above (that one's a real maps.google.com page embed);
+    # either can be used, whichever fits.
+    "Google Maps": {
+        "styles": {
+            "Roadmap": "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
+            "Satellite": "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+            "Terrain": "https://mt1.google.com/vt/lyrs=t&x={x}&y={y}&z={z}",
+            "Hybrid": "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+        },
+        "zmax": 20,
+    },
+    "CartoDB": {
+        "styles": {
+            "Light": "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+            "Dark": "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+            "Voyager": "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+        },
+        "zmax": 20,
+    },
+    "Esri Ocean": {
+        "styles": {
+            "Standard": "https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}",
+        },
+        "zmax": 13,
+    },
+    "Esri NatGeo": {
+        "styles": {
+            "Standard": "https://server.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}",
+        },
+        "zmax": 16,
+    },
+    "Esri Light Gray": {
+        "styles": {
+            "Standard": "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        },
+        "zmax": 16,
+    },
+    # Uses Bing's quadkey tile addressing ("{q}") rather than {z}/{x}/{y} --
+    # QGIS's XYZ tile source supports this token natively. "a" in the URL path
+    # selects Bing's aerial imagery layer specifically.
+    "Bing Maps (Aerial)": {
+        "styles": {
+            "Standard": "http://ecn.t3.tiles.virtualearth.net/tiles/a{q}.jpeg?g=1",
+        },
+        "zmax": 19,
     },
 }
 
-def _make_xyz_raster_layer(name):
-    """Build a QgsRasterLayer for one of the built-in TILE_BASEMAPS entries. QGIS's
-    "wms" provider handles plain XYZ tile URLs via a "type=xyz&url=..." data source
-    string -- the {z}/{x}/{y} tokens are substituted by QGIS itself and must stay
-    literal, and none of these URLs contain "&", so no percent-encoding is needed."""
+
+def _make_xyz_raster_layer(name, style=None):
+    """Build a QgsRasterLayer for one of the built-in TILE_BASEMAPS entries, using
+    the given style name (falls back to the entry's first/only style if the given
+    one isn't found). QGIS's "wms" provider handles plain XYZ tile URLs via a
+    "type=xyz&url=..." data source string -- the {z}/{x}/{y}/{q} tokens are
+    substituted by QGIS itself and must stay literal, and none of these URLs
+    contain "&", so no percent-encoding is needed."""
     config = TILE_BASEMAPS.get(name)
     if config is None:
         return None
 
+    styles = config["styles"]
+    url = styles.get(style) if style in styles else next(iter(styles.values()))
     zmax = config.get("zmax", 19)
-    uri = f"type=xyz&url={config['url']}&zmax={zmax}&zmin=0"
+    uri = f"type=xyz&url={url}&zmax={zmax}&zmin=0"
     return QgsRasterLayer(uri, name, "wms")
+
+
+def _basemap_styles(name):
+    """List of style names for a TILE_BASEMAPS entry, in definition order."""
+    return list(TILE_BASEMAPS.get(name, {}).get("styles", {}).keys())
+
+
+def _basemap_has_style_options(name):
+    """True if this basemap has more than one style to choose from (currently
+    "Google Maps" and "CartoDB") -- everything else is a single fixed tile
+    service, so a settings icon offering nothing to change would just be
+    clutter."""
+    return len(_basemap_styles(name)) > 1
 
 
 def _provider_has_style_options(provider):
     """True if this provider actually has more than one basemap or overlay choice
-    -- OpenTopoMap and Wikimedia Maps each only have a single style, so a settings
-    icon offering nothing to change would just be clutter."""
+    -- Wikimedia Maps, OpenSnowMap etc. each only have a single style, so a
+    settings icon offering nothing to change would just be clutter."""
     return len(PROVIDER_BASEMAPS.get(provider, [])) > 1 or len(PROVIDER_OVERLAYS.get(provider, [])) > 1
 
 
@@ -175,22 +245,12 @@ def _mercator_pixel(latitude, longitude, zoom):
 
 
 def build_provider_url(provider, basemap, overlay, latitude, longitude, zoom):
-    if provider == "OpenTopoMap":
-        return _build_opentopomap_url(latitude, longitude, zoom)
-    elif provider == "Wikimedia Maps":
+    if provider == "Wikimedia Maps":
         return _build_wikimedia_url(latitude, longitude, zoom)
-    elif provider == "OpenSeaMap":
-        return _build_openseamap_url(latitude, longitude, zoom)
     elif provider == "OpenRailwayMap":
         return _build_openrailwaymap_url(latitude, longitude, zoom, basemap)
     elif provider == "OpenSnowMap":
         return _build_opensnowmap_url(latitude, longitude, zoom)
-    elif provider == WAYMARKED_HIKING_PROVIDER:
-        return _build_waymarked_trails_url(latitude, longitude, zoom)
-    elif provider == "RainViewer":
-        return _build_rainviewer_url(latitude, longitude, zoom)
-    elif provider == "Windy":
-        return _build_windy_url(latitude, longitude, zoom, overlay)
     else:
         return _build_google_url(latitude, longitude, zoom, basemap, overlay)  # default
 
@@ -206,22 +266,10 @@ def _build_google_url(latitude, longitude, zoom, basemap, overlay):
             f"&zoom={zoom}&basemap={basemap_param}&layer={layer_param}")
 
 
-def _build_opentopomap_url(latitude, longitude, zoom):
-    # https://opentopomap.org -- single topographic/contour style, tiles top out ~z17.
-    zoom = round(max(0, min(17, zoom)))
-    return f"https://opentopomap.org/#map={zoom}/{latitude}/{longitude}"
-
-
 def _build_wikimedia_url(latitude, longitude, zoom):
     # https://maps.wikimedia.org -- single default OSM-based style.
     zoom = round(max(0, min(18, zoom)))
     return f"https://maps.wikimedia.org/#{zoom}/{latitude}/{longitude}"
-
-
-def _build_openseamap_url(latitude, longitude, zoom):
-    # https://map.openseamap.org -- nautical charts/marks over an OSM base.
-    zoom = round(max(0, min(18, zoom)))
-    return f"https://map.openseamap.org/?zoom={zoom}&lat={latitude}&lon={longitude}"
 
 
 _OPENRAILWAYMAP_STYLES = {
@@ -243,37 +291,3 @@ def _build_opensnowmap_url(latitude, longitude, zoom):
     # https://www.opensnowmap.org -- ski piste map; embed.html drops the site's own chrome.
     zoom = round(max(0, min(18, zoom)))
     return f"https://www.opensnowmap.org/embed.html?zoom={zoom}&lat={latitude}&lon={longitude}"
-
-
-def _build_waymarked_trails_url(latitude, longitude, zoom):
-    # https://hiking.waymarkedtrails.org -- hiking-route overlay on an OSM base.
-    zoom = round(max(0, min(18, zoom)))
-    return f"https://hiking.waymarkedtrails.org/#map={zoom}/{latitude}/{longitude}/0"
-
-
-def _build_rainviewer_url(latitude, longitude, zoom):
-    # https://www.rainviewer.com -- live radar; "loc" is lat,lon,zoom. The radar
-    # tiles themselves top out around z7-8, but the page accepts a closer zoom.
-    zoom = round(max(0, min(18, zoom)))
-    return f"https://www.rainviewer.com/map.html?loc={latitude},{longitude},{zoom}"
-
-
-_WINDY_OVERLAYS = {
-    "Wind": "wind",
-    "Rain": "rain",
-    "Temperature": "temp",
-    "Clouds": "clouds",
-    "Pressure": "pressure",
-}
-
-
-def _build_windy_url(latitude, longitude, zoom, overlay):
-    # community.windy.com/topic/77 -- lat, lon, zoom must come first and in that
-    # order; everything else is optional. No API key needed for the free embed
-    # widget (unlike Windy's Point Forecast / Map Forecast APIs).
-    overlay_param = _WINDY_OVERLAYS.get(overlay, "wind")
-    zoom = round(max(0, min(18, zoom)))
-    return (f"https://embed.windy.com/embed2.html?lat={latitude}&lon={longitude}&zoom={zoom}"
-            f"&detailLat={latitude}&detailLon={longitude}&overlay={overlay_param}"
-            f"&level=surface&type=map&location=coordinates&metricWind=default&metricTemp=default")
-
