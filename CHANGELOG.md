@@ -4,8 +4,9 @@ All notable changes to QuickMapCompare, from v0.7.0 through the first stable rel
 
 ## 1.0.0
 
-First stable release — no functional changes since 0.8.2.
+First stable release — no other functional changes since 0.8.2.
 
+*   Marked no longer experimental (`experimental=False` in `metadata.txt`), so it no longer shows the "experimental" badge in the QGIS Plugin Manager.
 *   Shortened the plugin description shown in the QGIS Plugin Manager.
 
 ## 0.8.2

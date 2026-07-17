@@ -12,10 +12,10 @@ repository=https://github.com/Siddh75/quick_map_compare
 about=QuickMapCompare builds a grid of side-by-side "viewports" in a dockable panel, each showing a QGIS layer, a native WMS/XYZ tile basemap (OpenStreetMap, Esri, CartoDB, Google Maps, Bing Maps, and more), or an embedded Web Map Provider. Every viewport can live-sync to the main QGIS canvas as you pan and zoom, and layer/tile viewports support an on-canvas "Swipe Compare" gesture (hold S and drag) to compare directly against the live canvas with no separate window.
 icon=icon.png
 tags=maps,compare,side by side,swipe,google maps,wikimedia maps,openrailwaymap,opensnowmap,esri,hillshade,usgs,openstreetmap,cyclosm,cartodb,bing maps,wms,xyz,tiles,web,layers,dock,grid,viewport,sync
-experimental=True
+experimental=False
 deprecated=False
 changelog=1.0.0
-        - First stable release. Shortened the plugin description; no functional changes since 0.8.2.
+        - First stable release: marked no longer experimental. Shortened the plugin description; no other functional changes since 0.8.2.
     0.8.2
         - "Add Viewport" no longer forces the source picker when the panel already has viewports but was just closed (via its own titlebar close button, which only hides it) -- clicking the toolbar/menu action now simply reopens it as it was. The source picker still opens as before the very first time (no panel/viewports yet) or whenever the panel is already open.
     0.8.1
