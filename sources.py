@@ -157,14 +157,20 @@ def _make_xyz_raster_layer(name, style=None):
     the given style name (falls back to the entry's first/only style if the given
     one isn't found). QGIS's "wms" provider handles plain XYZ tile URLs via a
     "type=xyz&url=..." data source string -- the {z}/{x}/{y}/{q} tokens are
-    substituted by QGIS itself and must stay literal, and none of these URLs
-    contain "&", so no percent-encoding is needed."""
+    substituted by QGIS itself and must stay literal. Most of these URLs are
+    plain tile paths with no "&" in them, but the Google Maps tile URLs are
+    query-string based (e.g. ".../vt/lyrs=m&x={x}&y={y}&z={z}") and their "&"s
+    would otherwise get parsed as separators between *this* uri's own
+    type=/url=/zmax=/zmin= parts, truncating the url value at the first "&" and
+    turning "x=", "y=", "z=" into bogus top-level keys -- so any "&" inside the
+    tile URL itself is percent-encoded first to keep it part of the url value."""
     config = TILE_BASEMAPS.get(name)
     if config is None:
         return None
 
     styles = config["styles"]
     url = styles.get(style) if style in styles else next(iter(styles.values()))
+    url = url.replace("&", "%26")
     zmax = config.get("zmax", 19)
     uri = f"type=xyz&url={url}&zmax={zmax}&zmin=0"
     return QgsRasterLayer(uri, name, "wms")
