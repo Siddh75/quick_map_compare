@@ -1,6 +1,11 @@
 # Changelog
 
-All notable changes to QuickMapCompare, from v0.7.0 through v1.0.2.
+All notable changes to QuickMapCompare, from v0.7.0 through v1.0.3.
+
+## 1.0.3
+
+*   **Fixed a crash introduced in 1.0.2** where QGIS could quit unexpectedly, typically within seconds of starting, independent of whether Swipe Compare was in use. 1.0.2 caught the S key application-wide via `QApplication.instance().installEventFilter()`, which is invoked for *every* event sent to *every* object in the whole application. PyQt's binding layer has to identify the runtime C++ type of each one to hand it to Python, and doing that across QGIS's large, dynamically-loaded set of plugin and provider libraries turned out not to be reliably safe on macOS. Reverted to filtering only the main canvas and its viewport, as in 1.0.1 and earlier.
+*   **S still doesn't need an extra click first.** Instead of the application-wide filter, the canvas now grabs keyboard focus on its own as soon as the mouse hovers over it, so pressing S works immediately — unless a text field elsewhere (a layer name, the expression builder, ...) is actively focused, in which case hovering the canvas leaves your typing alone.
 
 ## 1.0.2
 
