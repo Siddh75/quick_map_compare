@@ -1,6 +1,10 @@
 # Changelog
 
-All notable changes to QuickMapCompare, from v0.7.0 through the first stable release, v1.0.0.
+All notable changes to QuickMapCompare, from v0.7.0 through v1.0.1.
+
+## 1.0.1
+
+*   **Fixed Swipe Compare sometimes needing a couple of S presses to actually engage.** Every press re-rendered the armed viewport's mirror from scratch — a blocking render plus wait — and a quick tap's key-release could land before that finished, silently dropping the press. The rendered mirror is now cached and reused whenever nothing relevant (tile, style, viewport size, or main-canvas extent) has changed since the last press, so repeated presses with an unchanged view are instant and can no longer race the render.
 
 ## 1.0.0
 

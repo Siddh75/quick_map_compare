@@ -160,6 +160,10 @@ class SwipeCanvasController(QObject):
         self._swiping = False
         self._key_down = False  # physical S key state -- see _start_swipe for why this
                                  # is tracked separately from self._swiping
+        self._mirror_signature = None  # what self._mirror_pixmap was last rendered for
+        self._mirror_pixmap = None     # cached snapshot -- see _start_swipe
+        self._mirror_basemap_key = None    # (name, style) the cached raster layer below is for
+        self._mirror_basemap_layer = None  # reused QgsRasterLayer for "basemap" tiles
         self._attached = False
 
     # -- setup / teardown -------------------------------------------------
@@ -212,6 +216,10 @@ class SwipeCanvasController(QObject):
         self._active_mode = None
         self._swiping = False
         self._key_down = False
+        self._mirror_signature = None
+        self._mirror_pixmap = None
+        self._mirror_basemap_key = None
+        self._mirror_basemap_layer = None
         self._attached = False
 
     # -- active viewport ----------------------------------------------------
@@ -225,6 +233,11 @@ class SwipeCanvasController(QObject):
             self._end_swipe()
         self._active_tile = tile
         self._active_mode = mode
+        # Dropping the cached snapshot here is really just hygiene (releasing the
+        # old QPixmap promptly) -- _mirror_signature includes the tile's identity,
+        # so a stale cache from a previous tile could never match the new one anyway.
+        self._mirror_signature = None
+        self._mirror_pixmap = None
 
     def active_tile(self):
         return self._active_tile
@@ -296,9 +309,25 @@ class SwipeCanvasController(QObject):
             return
         canvas = self.iface.mapCanvas()
         viewport = canvas.viewport()
-        pixmap = self._render_mirror(tile, canvas, viewport)
-        if pixmap is None:
-            return
+
+        signature = self._mirror_signature_for(tile, canvas, viewport)
+        if signature == self._mirror_signature and self._mirror_pixmap is not None:
+            # Nothing that would change the rendered output has happened since the
+            # last successful render (same tile, style, viewport size, and main-
+            # canvas extent/CRS) -- reuse that snapshot instead of re-rendering.
+            # This is what makes a second S press right after the first (or after
+            # releasing and pressing again with the view untouched) feel instant,
+            # and just as importantly skips the blocking wait in _render_mirror()
+            # below entirely, so there's no window for a quick tap's key-release
+            # to land before self._swiping is set (see the _key_down check below).
+            pixmap = self._mirror_pixmap
+        else:
+            pixmap = self._render_mirror(tile, canvas, viewport)
+            if pixmap is None:
+                return
+            self._mirror_signature = signature
+            self._mirror_pixmap = pixmap
+
         if not self._key_down:
             # _render_mirror() -> waitWhileRendering() blocks until the mirror's
             # render job finishes, pumping the Qt event loop while it waits -- if
@@ -309,6 +338,9 @@ class SwipeCanvasController(QObject):
             # still False, so it had nothing to end and was silently dropped.
             # Bail out here instead of arming a swipe with no release left to end
             # it (which otherwise looked "stuck on" until S was pressed again).
+            # The render above is still cached, though, so the very next press --
+            # even a quick one -- will hit the cache-hit branch above and succeed
+            # immediately instead of racing the same wait again.
             return
 
         self._swiping = True
@@ -326,6 +358,24 @@ class SwipeCanvasController(QObject):
         if self._overlay is not None:
             self._overlay.hide()
 
+    def _mirror_signature_for(self, tile, main_canvas, viewport):
+        """A cheap-to-compute snapshot of everything that would actually change
+        what _render_mirror() produces -- if this is unchanged from the last
+        successful render, that render is still valid and can be reused as-is.
+        Returns None (never equal to a cached signature) if tile's underlying
+        widget has already been torn down -- _render_mirror()'s own try/except
+        handles that same case when it actually tries to render."""
+        try:
+            extent = main_canvas.extent()
+            return (
+                id(tile), tile.source, getattr(tile, "basemap_style", None),
+                viewport.width(), viewport.height(),
+                main_canvas.mapSettings().destinationCrs().authid(),
+                extent.xMinimum(), extent.yMinimum(), extent.xMaximum(), extent.yMaximum(),
+            )
+        except RuntimeError:
+            return None
+
     def _render_mirror(self, tile, main_canvas, viewport):
         kind, value = tile.source
         canvas = self._mirror_canvas
@@ -339,8 +389,16 @@ class SwipeCanvasController(QObject):
                 # Match whatever style the tile itself is currently showing (e.g.
                 # "Satellite" rather than silently falling back to the basemap's
                 # first/default style) so the swipe mirror looks the same as the
-                # tile it's swapping in for.
-                layer = _make_xyz_raster_layer(value, tile.basemap_style)
+                # tile it's swapping in for. Reuses the same QgsRasterLayer across
+                # calls when the basemap/style hasn't changed, rather than
+                # constructing a brand new one on every single S press.
+                style = tile.basemap_style
+                key = (value, style)
+                cached = self._mirror_basemap_layer
+                if key != self._mirror_basemap_key or cached is None or not cached.isValid():
+                    self._mirror_basemap_layer = _make_xyz_raster_layer(value, style)
+                    self._mirror_basemap_key = key
+                layer = self._mirror_basemap_layer
                 layers = [layer] if layer is not None and layer.isValid() else []
 
             # Sized to the *viewport*, not main_canvas itself -- see module docstring.

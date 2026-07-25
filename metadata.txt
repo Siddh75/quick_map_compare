@@ -2,7 +2,7 @@
 name=QuickMapCompare
 qgisMinimumVersion=3.16
 description=Build a grid of side-by-side viewports in a dockable panel to compare QGIS layers, built-in tile basemaps, and web map providers at once, with per-viewport live sync to the main map canvas.
-version=1.0.0
+version=1.0.1
 author=Siddharth
 email=siddharthgupta7may@gmail.com
 category=Web
@@ -14,7 +14,9 @@ icon=icon.png
 tags=maps,compare,side by side,swipe,google maps,wikimedia maps,openrailwaymap,opensnowmap,esri,hillshade,usgs,openstreetmap,cyclosm,cartodb,bing maps,wms,xyz,tiles,web,layers,dock,grid,viewport,sync
 experimental=False
 deprecated=False
-changelog=1.0.0
+changelog=1.0.1
+        - Fixed Swipe Compare sometimes needing a couple of S presses to actually engage. Every press was re-rendering the armed viewport's mirror from scratch (a blocking render + wait), and a quick tap's key-release could land before that finished, silently dropping the press. The rendered mirror is now cached and reused whenever nothing relevant (tile, style, viewport size, or main-canvas extent) has changed since the last press, so repeat presses with an unchanged view are instant and can no longer race the render.
+    1.0.0
         - First stable release: marked no longer experimental. Shortened the plugin description; no other functional changes since 0.8.2.
     0.8.2
         - "Add Viewport" no longer forces the source picker when the panel already has viewports but was just closed (via its own titlebar close button, which only hides it) -- clicking the toolbar/menu action now simply reopens it as it was. The source picker still opens as before the very first time (no panel/viewports yet) or whenever the panel is already open.
