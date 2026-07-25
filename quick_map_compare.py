@@ -560,6 +560,17 @@ class ViewportTileWidget(QFrame):
     def _on_body_loading_finished(self):
         self._loading_overlay.hide()
 
+    def is_loading(self):
+        """True while this tile's own body content is still being fetched -- just
+        reads the same state that shows/hides _loading_overlay. Used by
+        SwipeCanvasController to show a busy cursor over the main canvas while
+        this tile is armed for swipe but not actually ready yet, so pressing S
+        doesn't look like it silently did nothing."""
+        try:
+            return self._loading_overlay.isVisible()
+        except RuntimeError:
+            return False
+
     # -- sync ----------------------------------------------------------------
 
     def _on_sync_toggled(self, checked):

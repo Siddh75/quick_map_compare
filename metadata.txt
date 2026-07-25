@@ -2,7 +2,7 @@
 name=QuickMapCompare
 qgisMinimumVersion=3.16
 description=Build a grid of side-by-side viewports in a dockable panel to compare QGIS layers, built-in tile basemaps, and web map providers at once, with per-viewport live sync to the main map canvas.
-version=1.0.3
+version=1.1.0
 author=Siddharth
 email=siddharthgupta7may@gmail.com
 category=Web
@@ -14,7 +14,9 @@ icon=icon.png
 tags=maps,compare,side by side,swipe,google maps,wikimedia maps,openrailwaymap,opensnowmap,esri,hillshade,usgs,openstreetmap,cyclosm,cartodb,bing maps,wms,xyz,tiles,web,layers,dock,grid,viewport,sync
 experimental=False
 deprecated=False
-changelog=1.0.3
+changelog=1.1.0
+        - Added a busy/spinner cursor over the main canvas while a tile armed for Swipe Compare is still loading its own content. Pressing S at that moment won't have much to show yet, so the cursor now makes that clear instead of pressing S looking like it silently did nothing. Clears automatically once the tile finishes loading, once a swipe actually starts, or once nothing is armed.
+    1.0.3
         - Fixed a crash (QGIS quitting unexpectedly, usually within seconds of starting) introduced in 1.0.2. That version caught the S key application-wide via QApplication.instance().installEventFilter(), which is invoked for every event sent to every object in the whole application -- PyQt's binding layer has to identify the runtime type of each one to hand it to Python, and doing that for QGIS's huge, dynamically-loaded plugin/provider set turned out not to be safe on macOS, crashing QGIS outright, independent of whether Swipe Compare was even being used. Reverted to filtering only the main canvas and its viewport.
         - S not needing an extra click first is preserved, though: the canvas now grabs keyboard focus by itself as soon as the mouse hovers over it, so pressing S works immediately -- unless a text field elsewhere (a layer name, the expression builder, ...) is actively focused, in which case hovering the canvas leaves your typing alone.
     1.0.2

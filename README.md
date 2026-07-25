@@ -29,7 +29,7 @@ Click the "Add to Swipe Compare" icon on a layer or WMS/XYZ-tile viewport's over
 *   **Horizontal mode** (a vertical divider, dragged left/right): everything to the left of the cursor is replaced by the armed viewport's content.
 *   **Vertical mode** (a horizontal divider, dragged up/down): everything above the cursor is replaced instead.
 
-Release S to go back to the normal canvas view.
+Release S to go back to the normal canvas view. If the armed tile's own content is still loading (its "Loading…" badge is showing), the cursor over the main canvas switches to a busy/spinner shape — a sign that pressing S right now won't have much to show yet.
 
 Web Map Provider viewports (Google Maps, Wikimedia Maps, and the rest) don't offer the icon — there's no reliable way to composite an external web page's rendering onto the live QGIS canvas at interactive, press-and-drag speed the way a `QgsMapCanvas`-based viewport allows, so rather than offer something flaky, they're excluded from swipe entirely.
 

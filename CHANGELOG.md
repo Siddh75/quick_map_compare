@@ -1,6 +1,10 @@
 # Changelog
 
-All notable changes to QuickMapCompare, from v0.7.0 through v1.0.3.
+All notable changes to QuickMapCompare, from v0.7.0 through v1.1.0.
+
+## 1.1.0
+
+*   **Added a busy/spinner cursor over the main canvas while a tile armed for Swipe Compare is still loading its own content** (its "Loading…" badge is showing). Pressing S at that moment won't have much to show yet, so the cursor now makes that clear rather than pressing S looking like it silently did nothing. Clears automatically once the tile finishes loading, once a swipe actually starts, or once nothing is armed.
 
 ## 1.0.3
 

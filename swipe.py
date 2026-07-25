@@ -13,7 +13,11 @@ With a viewport armed, point the mouse at the main canvas and press and hold S: 
 horizontal mode everything left of the cursor is replaced by the armed viewport's own
 content at the same extent (a vertical divider, dragged left/right); in vertical mode
 it's everything above the cursor instead (a horizontal divider, dragged up/down).
-Release S to return to the normal view.
+Release S to return to the normal view. While the armed tile's own source is still
+loading (its "Loading…" badge is showing -- see ViewportTileWidget.is_loading()), the
+canvas cursor switches to a busy/spinner shape (see _update_hover_cursor) so it's clear
+that pressing S right now won't have much to show yet, rather than looking like nothing
+happened.
 
 Architecture: SwipeCanvasController installs an event filter on iface.mapCanvas() (for
 S key/release) and on iface.mapCanvas().viewport() (for mouse events, resize, and hover
@@ -188,6 +192,8 @@ class SwipeCanvasController(QObject):
         self._mirror_pixmap = None     # cached snapshot -- see _start_swipe
         self._mirror_basemap_key = None    # (name, style) the cached raster layer below is for
         self._mirror_basemap_layer = None  # reused QgsRasterLayer for "basemap" tiles
+        self._cursor_busy = False  # whether we've currently overridden the canvas
+                                    # cursor to a busy/spinner shape -- see _update_hover_cursor
         self._attached = False
 
     # -- setup / teardown -------------------------------------------------
@@ -228,6 +234,12 @@ class SwipeCanvasController(QObject):
             viewport.removeEventFilter(self)
         except RuntimeError:
             pass
+        if self._cursor_busy:
+            try:
+                viewport.unsetCursor()
+            except RuntimeError:
+                pass
+            self._cursor_busy = False
         if self._overlay is not None:
             self._overlay.setParent(None)
             self._overlay.deleteLater()
@@ -262,6 +274,10 @@ class SwipeCanvasController(QObject):
         # so a stale cache from a previous tile could never match the new one anyway.
         self._mirror_signature = None
         self._mirror_pixmap = None
+        # Recompute immediately (rather than waiting for the next mouse move) --
+        # covers arming/disarming swipe by clicking a tile's icon while the mouse
+        # already happens to be sitting over the main canvas.
+        self._refresh_hover_cursor()
 
     def active_tile(self):
         return self._active_tile
@@ -301,6 +317,9 @@ class SwipeCanvasController(QObject):
         # docstring for why this replaced an application-wide key filter).
         if event_type == QEvent.Type.Enter or event_type == QEvent.Type.MouseMove:
             self._maybe_focus_canvas(canvas)
+            self._update_hover_cursor(viewport)
+        elif event_type == QEvent.Type.Leave:
+            self._clear_hover_cursor(viewport)
 
         if event_type == QEvent.Type.Resize:
             self._overlay.setGeometry(0, 0, viewport.width(), viewport.height())
@@ -335,6 +354,55 @@ class SwipeCanvasController(QObject):
         if self._is_text_input_focused():
             return
         canvas.setFocus(Qt.FocusReason.MouseFocusReason)
+
+    def _tile_is_loading(self, tile):
+        try:
+            return bool(tile.is_loading())
+        except (RuntimeError, AttributeError):
+            return False
+
+    def _update_hover_cursor(self, viewport):
+        """Shows a busy cursor over the canvas while a tile is armed for swipe
+        but its content isn't ready yet (still fetching a layer/basemap source),
+        so pressing S in that moment doesn't look like it silently did nothing --
+        the mirror render just hasn't got anything to show yet. Cleared once the
+        tile finishes loading, a swipe actually starts, or nothing is armed."""
+        busy = (
+            self._active_tile is not None
+            and not self._swiping
+            and self._tile_is_loading(self._active_tile)
+        )
+        if busy == self._cursor_busy:
+            return
+        self._cursor_busy = busy
+        try:
+            if busy:
+                viewport.setCursor(Qt.CursorShape.BusyCursor)
+            else:
+                viewport.unsetCursor()
+        except RuntimeError:
+            self._cursor_busy = False
+
+    def _clear_hover_cursor(self, viewport):
+        if not self._cursor_busy:
+            return
+        self._cursor_busy = False
+        try:
+            viewport.unsetCursor()
+        except RuntimeError:
+            pass
+
+    def _refresh_hover_cursor(self):
+        """Recomputes the busy-cursor state immediately rather than waiting for
+        the next hover event -- see set_active()."""
+        if not self._attached:
+            return
+        canvas = self.iface.mapCanvas()
+        viewport = canvas.viewport()
+        if self._cursor_over_canvas(viewport):
+            self._update_hover_cursor(viewport)
+        else:
+            self._clear_hover_cursor(viewport)
 
     def _handle_key_press(self):
         self._key_down = True
@@ -426,6 +494,7 @@ class SwipeCanvasController(QObject):
             return
 
         self._swiping = True
+        self._update_hover_cursor(viewport)
         self._overlay.setGeometry(0, 0, viewport.width(), viewport.height())
         self._overlay.set_orientation(mode)
         self._overlay.set_pixmap(pixmap)
@@ -439,6 +508,7 @@ class SwipeCanvasController(QObject):
         self._swiping = False
         if self._overlay is not None:
             self._overlay.hide()
+        self._refresh_hover_cursor()
 
     def _mirror_signature_for(self, tile, main_canvas, viewport):
         """A cheap-to-compute snapshot of everything that would actually change
