@@ -9,30 +9,36 @@ page's rendering onto the live QGIS canvas at interactive, press-and-drag speed 
 a QgsMapCanvas-based viewport allows, so rather than offer something flaky, the icon
 simply isn't shown for those.
 
-With a viewport armed, click on the main canvas to give it focus, then press and hold S
-and move the mouse: in horizontal mode everything left of the cursor is replaced by the
-armed viewport's own content at the same extent (a vertical divider, dragged
-left/right); in vertical mode it's everything above the cursor instead (a horizontal
-divider, dragged up/down). Release S to return to the normal view.
+With a viewport armed, point the mouse at the main canvas and press and hold S: in
+horizontal mode everything left of the cursor is replaced by the armed viewport's own
+content at the same extent (a vertical divider, dragged left/right); in vertical mode
+it's everything above the cursor instead (a horizontal divider, dragged up/down).
+Release S to return to the normal view.
 
-Architecture: SwipeCanvasController is installed as an event filter directly on
-iface.mapCanvas() (that's what "on the canvas itself" means here, as opposed to the
-grab-a-snapshot-into-a-separate-dialog approach this used to take). SwipeCanvasOverlay
-is a transparent child widget parented onto that same canvas, so it composites for
-free -- it only paints the picked viewport's content over the portion left of the
-divider; the untouched portion simply shows the real canvas beneath it.
+Architecture: SwipeCanvasController installs an event filter on the whole application
+(QApplication.instance()) for key events, rather than on iface.mapCanvas() itself --
+key events only land on whichever widget currently has Qt keyboard focus, and that's
+easy to lose (clicking a tile's swipe icon in the dock, clicking a settings dialog,
+switching between docked panels, ...) without the user doing anything that looks like
+it should matter. Filtering at the application level means S is caught no matter which
+widget technically has focus; whether it should actually start (or keep driving) a
+swipe is instead decided by *where the mouse cursor is* (see _cursor_over_canvas) and
+whether the focused widget looks like a text field the user might genuinely be typing
+"s" into (see _is_text_input_focused). Critically, this also means a KeyRelease can
+never be missed just because focus drifted somewhere else while S was held -- that was
+the root cause of swipe getting stuck "on" with no key actually pressed.
 
-Note the split between iface.mapCanvas() itself and iface.mapCanvas().viewport():
-QgsMapCanvas is a QGraphicsView, and like any QAbstractScrollArea, the widget that
-actually *receives mouse events* is its internal viewport() child, not the QGraphicsView
-object itself -- only keyboard focus and resize land on the outer widget. The overlay is
-therefore parented onto the viewport (so its coordinate system exactly matches the
-rendered map pixels, with no frame-width offset to worry about), and mouse events are
-filtered on the viewport while key events are filtered on the canvas itself.
+Mouse events (dragging the divider) are still filtered on iface.mapCanvas().viewport()
+specifically, not the canvas widget itself or the application: QgsMapCanvas is a
+QGraphicsView, and like any QAbstractScrollArea, the widget that actually *receives
+mouse events* is its internal viewport() child. SwipeCanvasOverlay is a transparent
+child parented onto that same viewport, so it composites for free -- it only paints the
+picked viewport's content over the portion left of the divider; the untouched portion
+simply shows the real canvas beneath it.
 """
 
 from qgis.PyQt.QtCore import QObject, Qt, QEvent, QRect
-from qgis.PyQt.QtWidgets import QWidget
+from qgis.PyQt.QtWidgets import QWidget, QApplication, QLineEdit, QTextEdit, QPlainTextEdit, QComboBox
 from qgis.PyQt.QtGui import QPainter, QColor, QPen, QCursor, QFontMetrics
 from qgis.gui import QgsMapCanvas
 from qgis.core import QgsProject
@@ -40,6 +46,15 @@ from qgis.core import QgsProject
 from .sources import _make_xyz_raster_layer
 
 SWIPE_KEY = Qt.Key.Key_S
+
+# The only non-key event types eventFilter ever acts on (see eventFilter) -- checked
+# before touching self.iface.mapCanvas() at all, so the application-wide filter (see
+# module docstring) stays cheap for the vast majority of events that pass through it
+# (paint, timer, hover, focus, unrelated mouse moves elsewhere in the QGIS window...).
+_VIEWPORT_EVENT_TYPES = frozenset((
+    QEvent.Type.Resize, QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress,
+    QEvent.Type.MouseButtonRelease, QEvent.Type.MouseButtonDblClick, QEvent.Type.Wheel,
+))
 
 # Kinds of viewport that can be used as a swipe-compare target -- both are rendered
 # via QgsMapCanvas (same engine as the main canvas itself), which is what makes
@@ -143,11 +158,12 @@ class SwipeCanvasOverlay(QWidget):
 
 
 class SwipeCanvasController(QObject):
-    """Installed as an event filter on the main map canvas for the plugin's whole
-    lifetime (see QuickMapComparePlugin.initGui/unload). Tracks which viewport (if
-    any) is picked for swipe comparison, and drives the press-S-and-drag gesture: key
-    press renders a same-size/extent snapshot of the picked viewport once and shows
-    the overlay; mouse move (while S is held) just moves the divider -- cheap, no
+    """Installed as an event filter on the whole application (for S key events) and
+    the main map canvas's viewport (for mouse events) for the plugin's whole lifetime
+    (see QuickMapComparePlugin.initGui/unload). Tracks which viewport (if any) is
+    picked for swipe comparison, and drives the press-S-and-drag gesture: key press
+    renders a same-size/extent snapshot of the picked viewport once and shows the
+    overlay; mouse move (while S is held) just moves the divider -- cheap, no
     re-render needed; key release hides the overlay again."""
 
     def __init__(self, iface):
@@ -173,7 +189,9 @@ class SwipeCanvasController(QObject):
             return
         canvas = self.iface.mapCanvas()
         viewport = canvas.viewport()
-        canvas.installEventFilter(self)      # key events (focus lives on the canvas)
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)     # S key/release, wherever focus actually is
         viewport.installEventFilter(self)    # mouse events + resize (the actual rendered surface)
 
         self._overlay = SwipeCanvasOverlay(viewport)
@@ -196,10 +214,12 @@ class SwipeCanvasController(QObject):
             return
         canvas = self.iface.mapCanvas()
         viewport = canvas.viewport()
-        try:
-            canvas.removeEventFilter(self)
-        except RuntimeError:
-            pass
+        app = QApplication.instance()
+        if app is not None:
+            try:
+                app.removeEventFilter(self)
+            except RuntimeError:
+                pass
         try:
             viewport.removeEventFilter(self)
         except RuntimeError:
@@ -254,51 +274,89 @@ class SwipeCanvasController(QObject):
     def eventFilter(self, watched, event):
         if self._overlay is None:
             return False
-        canvas = self.iface.mapCanvas()
-        viewport = canvas.viewport()
         event_type = event.type()
 
-        if watched is viewport:
-            if event_type == QEvent.Type.Resize:
-                self._overlay.setGeometry(0, 0, viewport.width(), viewport.height())
-                return False
-
-            if self._swiping:
-                # Fully own input for the duration of the gesture -- besides moving
-                # the divider, this stops a stray click/scroll from panning or
-                # zooming the main canvas out from under an active comparison.
-                if event_type == QEvent.Type.MouseMove:
-                    x, y = _event_pos(event)
-                    self._overlay.set_divider_pos(x if self._active_mode == "horizontal" else y)
-                    return True
-                if event_type in (
-                    QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease,
-                    QEvent.Type.MouseButtonDblClick, QEvent.Type.Wheel,
-                ):
-                    return True
+        # Key events arrive here via the application-wide filter (see module
+        # docstring for why) -- cheap bail-out for the two we care about before
+        # doing anything else, since this runs for every event in the whole app.
+        if event_type == QEvent.Type.KeyPress:
+            if not event.isAutoRepeat() and event.key() == SWIPE_KEY:
+                return self._handle_key_press()
+            return False
+        if event_type == QEvent.Type.KeyRelease:
+            if not event.isAutoRepeat() and event.key() == SWIPE_KEY:
+                return self._handle_key_release()
             return False
 
-        if watched is canvas:
-            # Qt's QAbstractScrollArea machinery redirects the viewport's focus proxy
-            # to the outer QGraphicsView, so clicking into the canvas gives *this*
-            # object keyboard focus -- key events target it, not the viewport, unlike
-            # mouse events (handled above).
-            if event_type == QEvent.Type.KeyPress and not event.isAutoRepeat() and event.key() == SWIPE_KEY:
-                self._key_down = True
-                if self._active_tile is None:
-                    return False
-                if not self._swiping:
-                    self._start_swipe()
+        if event_type not in _VIEWPORT_EVENT_TYPES:
+            return False
+
+        viewport = self.iface.mapCanvas().viewport()
+        if watched is not viewport:
+            return False
+
+        if event_type == QEvent.Type.Resize:
+            self._overlay.setGeometry(0, 0, viewport.width(), viewport.height())
+            return False
+
+        if self._swiping:
+            # Fully own input for the duration of the gesture -- besides moving
+            # the divider, this stops a stray click/scroll from panning or
+            # zooming the main canvas out from under an active comparison.
+            if event_type == QEvent.Type.MouseMove:
+                x, y = _event_pos(event)
+                self._overlay.set_divider_pos(x if self._active_mode == "horizontal" else y)
                 return True
-
-            if event_type == QEvent.Type.KeyRelease and not event.isAutoRepeat() and event.key() == SWIPE_KEY:
-                self._key_down = False
-                if self._swiping:
-                    self._end_swipe()
-                    return True
-                return False
-
+            return True  # remaining types in _VIEWPORT_EVENT_TYPES are all mouse buttons/wheel
         return False
+
+    def _handle_key_press(self):
+        self._key_down = True
+        if self._swiping:
+            # Already mid-swipe -- a stray non-autorepeat press while already
+            # swiping shouldn't happen physically, but if it does, keep claiming
+            # events rather than letting one fall through to some unrelated QGIS
+            # shortcut while we're actively driving the canvas.
+            return True
+        if self._active_tile is None:
+            return False
+        canvas = self.iface.mapCanvas()
+        viewport = canvas.viewport()
+        if not self._cursor_over_canvas(viewport):
+            # S pressed while pointing at some other panel/dialog -- not for us;
+            # let it through untouched (also covers the case where it's meant for
+            # a text field elsewhere, see _is_text_input_focused below).
+            return False
+        if self._is_text_input_focused():
+            return False
+        self._start_swipe()
+        return True
+
+    def _handle_key_release(self):
+        self._key_down = False
+        if self._swiping:
+            self._end_swipe()
+            return True
+        return False
+
+    def _cursor_over_canvas(self, viewport):
+        try:
+            pos = viewport.mapFromGlobal(QCursor.pos())
+            return viewport.rect().contains(pos)
+        except RuntimeError:
+            return False
+
+    def _is_text_input_focused(self):
+        """True if the currently focused widget looks like somewhere the user could
+        genuinely be typing the letter "s" -- since S is now caught application-wide
+        rather than only while the main canvas has focus, this keeps that global
+        catch from swallowing an "s" meant for, say, a layer name field or the
+        expression builder."""
+        app = QApplication.instance()
+        if app is None:
+            return False
+        widget = app.focusWidget()
+        return isinstance(widget, (QLineEdit, QTextEdit, QPlainTextEdit, QComboBox))
 
     # -- swipe lifecycle -----------------------------------------------------
 

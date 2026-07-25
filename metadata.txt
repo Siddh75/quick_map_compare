@@ -2,7 +2,7 @@
 name=QuickMapCompare
 qgisMinimumVersion=3.16
 description=Build a grid of side-by-side viewports in a dockable panel to compare QGIS layers, built-in tile basemaps, and web map providers at once, with per-viewport live sync to the main map canvas.
-version=1.0.1
+version=1.0.2
 author=Siddharth
 email=siddharthgupta7may@gmail.com
 category=Web
@@ -14,7 +14,10 @@ icon=icon.png
 tags=maps,compare,side by side,swipe,google maps,wikimedia maps,openrailwaymap,opensnowmap,esri,hillshade,usgs,openstreetmap,cyclosm,cartodb,bing maps,wms,xyz,tiles,web,layers,dock,grid,viewport,sync
 experimental=False
 deprecated=False
-changelog=1.0.1
+changelog=1.0.2
+        - Fixed Swipe Compare's S key not always working when the mouse was pointed at another docked panel/viewport (or hadn't been re-clicked into the main canvas since a settings dialog or the dock's own swipe icon was last clicked): the S key was only ever checked while the main canvas widget itself held Qt keyboard focus, which is easy to lose without doing anything that looks like it should matter. S is now caught application-wide and gated on where the mouse cursor actually is instead of which widget has focus, so it works as soon as you point at the canvas, no extra click needed.
+        - Fixed Swipe Compare occasionally getting stuck "on" with S no longer pressed. Same root cause as above: if focus drifted away from the main canvas while S was held, the key-release could be delivered to some other widget entirely and never reach the swipe code, leaving it stuck armed. Since S is now caught application-wide, the release can no longer be missed regardless of where focus ends up.
+    1.0.1
         - Fixed Swipe Compare sometimes needing a couple of S presses to actually engage. Every press was re-rendering the armed viewport's mirror from scratch (a blocking render + wait), and a quick tap's key-release could land before that finished, silently dropping the press. The rendered mirror is now cached and reused whenever nothing relevant (tile, style, viewport size, or main-canvas extent) has changed since the last press, so repeat presses with an unchanged view are instant and can no longer race the render.
     1.0.0
         - First stable release: marked no longer experimental. Shortened the plugin description; no other functional changes since 0.8.2.

@@ -24,7 +24,7 @@ This is a standalone plugin, independent from [QuickMapLink](https://github.com/
 
 ## Swipe Compare
 
-Click the "Add to Swipe Compare" icon on a layer or WMS/XYZ-tile viewport's overlay bar to cycle it through three states: **off → horizontal → vertical → off** (arming one un-arms whichever other tile had it armed — there's only one active target at a time). Click on the main canvas so it has focus, then press and hold **S** and move the mouse:
+Click the "Add to Swipe Compare" icon on a layer or WMS/XYZ-tile viewport's overlay bar to cycle it through three states: **off → horizontal → vertical → off** (arming one un-arms whichever other tile had it armed — there's only one active target at a time). Point the mouse at the main canvas, then press and hold **S** and move the mouse:
 
 *   **Horizontal mode** (a vertical divider, dragged left/right): everything to the left of the cursor is replaced by the armed viewport's content.
 *   **Vertical mode** (a horizontal divider, dragged up/down): everything above the cursor is replaced instead.
@@ -102,7 +102,7 @@ Hover any tile to see its floating control bar (it overlaps the content rather t
 
 ### 4. Compare against the main canvas directly (Swipe Compare)
 
-For a layer or WMS/XYZ tile, click its **Add to Swipe Compare** icon (cycles off → horizontal → vertical → off), click on the main QGIS canvas so it has focus, then **press and hold S** and move the mouse — the main canvas is replaced by that tile's content on one side of the cursor, letting you drag a divider back and forth to compare. Release S to return to normal. Full details, including why provider tiles aren't offered here, in [Swipe Compare](#swipe-compare).
+For a layer or WMS/XYZ tile, click its **Add to Swipe Compare** icon (cycles off → horizontal → vertical → off), point the mouse at the main QGIS canvas, then **press and hold S** and move the mouse — the main canvas is replaced by that tile's content on one side of the cursor, letting you drag a divider back and forth to compare. Release S to return to normal. Full details, including why provider tiles aren't offered here, in [Swipe Compare](#swipe-compare).
 
 ### A worked example
 

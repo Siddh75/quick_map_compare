@@ -1,6 +1,11 @@
 # Changelog
 
-All notable changes to QuickMapCompare, from v0.7.0 through v1.0.1.
+All notable changes to QuickMapCompare, from v0.7.0 through v1.0.2.
+
+## 1.0.2
+
+*   **Fixed the S key not always working when the mouse was over another docked panel/viewport.** S was only ever checked while the main canvas widget itself held Qt keyboard focus — easy to lose without doing anything that looked like it should matter (clicking a tile's swipe icon in the dock, closing a settings dialog, switching panels). S is now caught application-wide and gated on where the mouse cursor actually is instead of which widget has focus, so it works as soon as you point at the canvas.
+*   **Fixed Swipe Compare occasionally getting stuck "on" with S no longer pressed.** Same root cause: if focus had drifted away from the main canvas while S was held, the key-release could be delivered to some other widget entirely and never reach the swipe code. Since S is now caught application-wide, the release can no longer be missed regardless of where focus ends up.
 
 ## 1.0.1
 
