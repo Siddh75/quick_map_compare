@@ -1,6 +1,10 @@
 # Changelog
 
-All notable changes to QuickMapCompare, from v0.7.0 through v1.1.0.
+All notable changes to QuickMapCompare, from v0.7.0 through v1.1.1.
+
+## 1.1.1
+
+*   **The busy/spinner cursor added in 1.1.0 now also reappears when the armed tile reloads because the main canvas was panned or zoomed**, not just on its very first load. Wheel-zooming in particular produces no mouse movement for the cursor to react to, so this is now driven directly by the tile's own loading state changing (a new `loading_changed` signal on `ViewportTileWidget`), plus the main canvas's own `extentsChanged` signal as a catch-all, rather than only being re-checked on mouse move.
 
 ## 1.1.0
 

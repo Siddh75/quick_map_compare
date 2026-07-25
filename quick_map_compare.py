@@ -15,7 +15,7 @@ from qgis.PyQt.QtWidgets import (
     QPushButton, QToolButton, QRadioButton, QButtonGroup, QDockWidget, QFrame,
     QSizePolicy, QMessageBox, QSplitter,
 )
-from qgis.PyQt.QtCore import Qt, QUrl, QTimer, QSize, QPoint, QRect
+from qgis.PyQt.QtCore import Qt, QUrl, QTimer, QSize, QPoint, QRect, pyqtSignal
 from qgis.PyQt.QtGui import QIcon, QPainter, QColor, QPen, QFontMetrics
 from qgis.gui import QgsMapCanvas, QgisInterface
 from qgis.core import QgsProject
@@ -295,6 +295,12 @@ class ViewportTileWidget(QFrame):
 
     OVERLAY_HEIGHT = 30
 
+    # Mirrors _loading_overlay's visibility -- emitted from _on_body_loading_started/
+    # _on_body_loading_finished so external listeners (SwipeCanvasController, to keep
+    # its busy cursor in sync without having to poll) don't need to reach into private
+    # state or its own render signals to know when this tile's content is (un)available.
+    loading_changed = pyqtSignal(bool)
+
     def __init__(self, iface, source, on_remove, on_changed, on_swipe_selected):
         super().__init__()
         self.iface = iface
@@ -556,13 +562,18 @@ class ViewportTileWidget(QFrame):
     def _on_body_loading_started(self):
         self._loading_overlay.show()
         self._loading_overlay.raise_()
+        self.loading_changed.emit(True)
 
     def _on_body_loading_finished(self):
         self._loading_overlay.hide()
+        self.loading_changed.emit(False)
 
     def is_loading(self):
         """True while this tile's own body content is still being fetched -- just
-        reads the same state that shows/hides _loading_overlay. Used by
+        reads the same state that shows/hides _loading_overlay (also emitted as
+        loading_changed, above). This fires again on every re-render triggered by
+        panning/zooming the main canvas -- sync_layer_extent() calls canvas.refresh()
+        on every extentsChanged, same as the very first load. Used by
         SwipeCanvasController to show a busy cursor over the main canvas while
         this tile is armed for swipe but not actually ready yet, so pressing S
         doesn't look like it silently did nothing."""

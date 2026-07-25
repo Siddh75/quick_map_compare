@@ -17,7 +17,12 @@ Release S to return to the normal view. While the armed tile's own source is sti
 loading (its "Loading…" badge is showing -- see ViewportTileWidget.is_loading()), the
 canvas cursor switches to a busy/spinner shape (see _update_hover_cursor) so it's clear
 that pressing S right now won't have much to show yet, rather than looking like nothing
-happened.
+happened. This isn't just the tile's very first load: panning or zooming the main
+canvas re-triggers the same loading state on every sync-enabled tile (see
+sync_layer_extent() in quick_map_compare.py), so the busy cursor reappears for that too
+-- tracked via the tile's loading_changed signal (see _connect_active_tile_loading),
+plus the main canvas's own extentsChanged as a catch-all for extent changes that don't
+happen to produce a MouseMove over the canvas (a wheel-zoom, for instance).
 
 Architecture: SwipeCanvasController installs an event filter on iface.mapCanvas() (for
 S key/release) and on iface.mapCanvas().viewport() (for mouse events, resize, and hover
@@ -205,6 +210,13 @@ class SwipeCanvasController(QObject):
         viewport = canvas.viewport()
         canvas.installEventFilter(self)      # S key/release, once canvas has focus
         viewport.installEventFilter(self)    # mouse events, resize, hover-focus
+        # Catch-all refresh trigger for the busy cursor: a wheel-zoom (or any
+        # extent change not accompanied by a MouseMove, e.g. panning via the
+        # keyboard) wouldn't otherwise re-trigger _update_hover_cursor. The armed
+        # tile's own loading_changed signal (connected in set_active) covers the
+        # precise moment its reload actually starts/finishes; this just makes sure
+        # a stale busy cursor never lingers past the extent that caused it.
+        canvas.extentsChanged.connect(self._refresh_hover_cursor)
 
         self._overlay = SwipeCanvasOverlay(viewport)
         self._overlay.setGeometry(0, 0, viewport.width(), viewport.height())
@@ -234,6 +246,11 @@ class SwipeCanvasController(QObject):
             viewport.removeEventFilter(self)
         except RuntimeError:
             pass
+        try:
+            canvas.extentsChanged.disconnect(self._refresh_hover_cursor)
+        except (RuntimeError, TypeError):
+            pass
+        self._disconnect_active_tile_loading()
         if self._cursor_busy:
             try:
                 viewport.unsetCursor()
@@ -267,6 +284,7 @@ class SwipeCanvasController(QObject):
             return
         if self._swiping:
             self._end_swipe()
+        self._disconnect_active_tile_loading()
         self._active_tile = tile
         self._active_mode = mode
         # Dropping the cached snapshot here is really just hygiene (releasing the
@@ -274,9 +292,35 @@ class SwipeCanvasController(QObject):
         # so a stale cache from a previous tile could never match the new one anyway.
         self._mirror_signature = None
         self._mirror_pixmap = None
+        self._connect_active_tile_loading()
         # Recompute immediately (rather than waiting for the next mouse move) --
         # covers arming/disarming swipe by clicking a tile's icon while the mouse
         # already happens to be sitting over the main canvas.
+        self._refresh_hover_cursor()
+
+    def _connect_active_tile_loading(self):
+        """Keeps the busy cursor in sync with the armed tile's own loading state
+        precisely (not just when the mouse happens to move) -- covers a reload
+        triggered by panning/zooming the main canvas, including a wheel-zoom,
+        which produces no MouseMove for _update_hover_cursor to react to."""
+        tile = self._active_tile
+        if tile is None:
+            return
+        try:
+            tile.loading_changed.connect(self._on_active_tile_loading_changed)
+        except (RuntimeError, TypeError):
+            pass
+
+    def _disconnect_active_tile_loading(self):
+        tile = self._active_tile
+        if tile is None:
+            return
+        try:
+            tile.loading_changed.disconnect(self._on_active_tile_loading_changed)
+        except (RuntimeError, TypeError):
+            pass
+
+    def _on_active_tile_loading_changed(self, _loading):
         self._refresh_hover_cursor()
 
     def active_tile(self):
